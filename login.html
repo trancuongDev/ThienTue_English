@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Đăng Nhập — Thiên Tuệ English</title>
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net;
+    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+    font-src 'self' https://fonts.gstatic.com;
+    img-src 'self' data: blob: https://*.supabase.co;
+    connect-src 'self' https://*.supabase.co wss://*.supabase.co;
+    object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';
+  "/>
+  <meta http-equiv="X-Frame-Options" content="DENY"/>
+  <meta http-equiv="X-Content-Type-Options" content="nosniff"/>
+  <link rel="icon" type="image/png" href="icons/icon-192.png"/>
+  <link rel="manifest" href="manifest.json"/>
+  <meta name="theme-color" content="#c0392b"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet"/>
+  <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',sans-serif;background:#0d0404;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1rem}
+
+    /* ── PARTICLES ── */
+    #particles{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+    .star{position:absolute;border-radius:50%;animation:twinkle ease-in-out infinite}
+    @keyframes twinkle{0%,100%{opacity:.1;transform:scale(.8)}50%{opacity:.9;transform:scale(1.3)}}
+    .particle{position:absolute;border-radius:50%;opacity:0;animation:pfloat linear infinite}
+    @keyframes pfloat{0%{opacity:0;transform:translateY(100vh)}15%{opacity:.6}85%{opacity:.3}100%{opacity:0;transform:translateY(-5vh)}}
+
+    /* ── BOX ── */
+    .login-box{position:relative;z-index:1;background:#fff;border-radius:28px;padding:2rem 2rem 1.75rem;width:100%;max-width:400px;box-shadow:0 32px 80px rgba(0,0,0,.45),0 0 0 1px rgba(192,57,43,.12);animation:boxIn .55s cubic-bezier(.22,1,.36,1) both}
+    @keyframes boxIn{from{opacity:0;transform:translateY(20px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+    @keyframes gradientShift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* ── HEADER ── */
+    .box-header{text-align:center;margin-bottom:1.4rem}
+    .logo-wrap{position:relative;display:inline-block;margin-bottom:.9rem}
+    .logo-wrap img{width:120px;height:120px;border-radius:28px;object-fit:contain;background:#fff;box-shadow:0 16px 40px rgba(192,57,43,.35),0 0 0 3px rgba(192,57,43,.2)}
+    .logo-online{position:absolute;bottom:-2px;right:-2px;width:26px;height:26px;background:#10b981;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 8px rgba(16,185,129,.5)}
+    .box-title{font-size:1.6rem;font-weight:900;color:#0f172a;letter-spacing:-.5px;font-family:'Playfair Display',serif}
+    .box-sub{font-size:.84rem;color:#94a3b8;margin-top:.3rem}
+
+    /* ── FORM ── */
+    .field{display:flex;flex-direction:column;gap:.3rem;margin-bottom:.7rem}
+    .field label{font-size:.72rem;font-weight:800;color:#c0392b;letter-spacing:.6px;text-transform:uppercase}
+    .input-row{display:flex;align-items:center;background:#f8faff;border:1.5px solid #e0e7ff;border-radius:13px;overflow:hidden;transition:border-color .2s,box-shadow .2s}
+    .input-row:focus-within{border-color:#c0392b;box-shadow:0 0 0 3px rgba(192,57,43,.1)}
+    .input-row span{padding:0 .85rem;font-size:1rem;color:#94a3b8;flex-shrink:0}
+    .input-row input{flex:1;border:none;outline:none;padding:.8rem .7rem .8rem 0;background:transparent;font-size:.93rem;color:#0f172a}
+
+    .row-between{display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem;font-size:.82rem}
+    .check-label{display:flex;align-items:center;gap:.4rem;color:#64748b;cursor:pointer}
+    .check-label input{accent-color:#c0392b;width:14px;height:14px}
+    .pw-hint{font-size:.71rem;color:#94a3b8;margin-top:.25rem;line-height:1.6}
+
+    .btn-login{width:100%;padding:.9rem;font-size:.95rem;font-weight:800;border:none;border-radius:13px;color:#fff;cursor:pointer;position:relative;overflow:hidden;letter-spacing:.3px;background:linear-gradient(135deg,#e74c3c 0%,#c0392b 50%,#96281b 100%);background-size:200% 200%;animation:gradientShift 4s ease infinite;box-shadow:0 6px 24px rgba(192,57,43,.45);transition:transform .2s,box-shadow .2s;margin-bottom:.75rem}
+    .btn-login:hover{transform:translateY(-2px);box-shadow:0 10px 32px rgba(192,57,43,.55)}
+    #loginBtnLoader{display:none;position:absolute;inset:0;align-items:center;justify-content:center;gap:.5rem;background:inherit}
+    .spinner{width:16px;height:16px;border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
+
+    .terms{text-align:center;font-size:.74rem;color:#94a3b8;line-height:1.6;margin-bottom:.6rem}
+    .terms a{color:#c0392b;font-weight:700;text-decoration:none}
+
+    .divider{display:flex;align-items:center;gap:.5rem;margin:.1rem 0 .65rem}
+    .divider div{flex:1;height:1px;background:#f1f5f9}
+    .divider span{font-size:.74rem;color:#cbd5e1}
+
+    .footer-row{display:flex;justify-content:space-between;align-items:center;font-size:.82rem}
+    .footer-row p{color:#94a3b8;margin:0}
+    .link-red{color:#c0392b;font-weight:700;cursor:pointer;transition:opacity .2s;background:none;border:none;font-size:.82rem;font-family:inherit;padding:0}
+    .link-red:hover{opacity:.7}
+
+    .warn-box{background:linear-gradient(135deg,#fef3c7,#fde68a);border:1.5px solid #f59e0b;border-radius:12px;padding:.75rem 1rem;font-size:.82rem;color:#78350f;text-align:center;display:flex;align-items:center;justify-content:center;gap:.5rem;margin-top:.7rem;line-height:1.6}
+
+    .error-msg{color:#e74c3c;font-size:.83rem;min-height:1rem;font-weight:600;text-align:center;margin-bottom:.2rem}
+
+    /* ── MODAL ── */
+    .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:999;overflow-y:auto;backdrop-filter:blur(4px);padding:1.5rem 1rem}
+    .modal-overlay.open{display:block}
+    .modal-box{max-width:520px;margin:0 auto;border-radius:20px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.35)}
+
+    /* ── DEVICE TIP ── */
+    #deviceTip{display:none;background:rgba(219,234,254,.9);border:1.5px solid #93c5fd;border-radius:12px;padding:.65rem 1rem;font-size:.82rem;color:#1e40af;line-height:1.6;align-items:center;gap:.65rem;margin-bottom:.9rem}
+  </style>
+</head>
+<body>
+
+<div id="particles"></div>
+
+<div class="login-box">
+
+  <!-- Device tip (mobile only) -->
+  <div id="deviceTip">
+    <span style="font-size:1.1rem;flex-shrink:0">💻</span>
+    <span>Dùng <b>laptop hoặc tablet</b> để học hiệu quả hơn.</span>
+  </div>
+
+  <!-- Header -->
+  <div class="box-header">
+    <div class="logo-wrap">
+      <img src="icons/icon-192.png" alt="Logo"/>
+      <div class="logo-online"></div>
+    </div>
+    <div class="box-title">Chào mừng trở lại</div>
+    <div class="box-sub">Đăng nhập để tiếp tục học tập</div>
+  </div>
+
+  <!-- Form -->
+  <form id="loginForm">
+    <div class="field">
+      <label>Tài khoản</label>
+      <div class="input-row">
+        <span>📧</span>
+        <input type="text" id="usernameInput" placeholder="Gmail hoặc tên đăng nhập" required autocomplete="username"/>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Mật khẩu</label>
+      <div class="input-row">
+        <span>🔑</span>
+        <input type="password" id="passwordInput" placeholder="Nhập mật khẩu" required autocomplete="current-password" style="font-family:'Courier New',monospace;letter-spacing:.05em"/>
+      </div>
+      <div class="pw-hint">⚠️ Chú ý phân biệt: chữ <b>i</b> thường (i) và chữ <b>L</b> hoa (L) — số <b>1</b> và chữ <b>l</b> thường (l) — số <b>0</b> và chữ <b>O</b> hoa (O)</div>
+    </div>
+
+    <div class="row-between">
+      <label class="check-label">
+        <input type="checkbox"/> Ghi nhớ đăng nhập
+      </label>
+      <button type="button" class="link-red" onclick="document.getElementById('forgotPwModal').classList.add('open')">Quên mật khẩu?</button>
+    </div>
+
+    <div id="loginError" class="error-msg"></div>
+
+    <button type="submit" id="loginBtn" class="btn-login">
+      <span id="loginBtnText">Đăng Nhập →</span>
+      <span id="loginBtnLoader">
+        <span class="spinner"></span>Đang xử lý...
+      </span>
+    </button>
+
+  </form>
+
+  <!-- Reset admin ẩn — bấm 5 lần vào logo để kích hoạt -->
+  <div id="adminResetHint" style="display:none;text-align:center;margin-top:.75rem;font-size:.75rem;color:#94a3b8">
+    <button onclick="resetAdminAccount()" style="background:none;border:none;color:#c0392b;font-size:.75rem;cursor:pointer;font-weight:700;text-decoration:underline">🔄 Reset tài khoản Admin</button>
+  </div>
+
+</div>
+
+<script>
+// Bấm 5 lần vào logo để hiện nút reset
+let _logoTaps=0,_logoTimer;
+document.querySelector('.logo-wrap')?.addEventListener('click',()=>{
+  _logoTaps++;clearTimeout(_logoTimer);
+  _logoTimer=setTimeout(()=>{_logoTaps=0;},2000);
+  if(_logoTaps>=5){document.getElementById('adminResetHint').style.display='block';_logoTaps=0;}
+});
+async function resetAdminAccount(){
+  const h=await(async str=>{const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(str));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('');})('admindH89065');
+  localStorage.setItem('dh_teacher',JSON.stringify({username:'admin124532Dh',passwordHash:h,full_name:'Admin',hashed:true}));
+  localStorage.removeItem('dh_admin_attempts');
+  document.getElementById('adminResetHint').style.display='none';
+  document.getElementById('loginError').textContent='✅ Đã reset. Thử đăng nhập lại.';
+  document.getElementById('loginError').style.color='#10b981';
+}
+</script>
+
+<!-- MODAL QUÊN MẬT KHẨU -->
+<div id="forgotPwModal" class="modal-overlay" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal-box">
+    <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:1.5rem;color:#fff;position:relative">
+      <button onclick="document.getElementById('forgotPwModal').classList.remove('open')" style="position:absolute;top:1rem;right:1rem;background:rgba(255,255,255,.15);border:none;color:#fff;width:32px;height:32px;border-radius:50%;font-size:1rem;cursor:pointer">✕</button>
+      <div style="display:flex;align-items:center;gap:.85rem">
+        <div style="width:44px;height:44px;background:rgba(255,255,255,.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.4rem">🔑</div>
+        <div>
+          <div style="font-size:1.1rem;font-weight:800">Quên mật khẩu?</div>
+          <div style="font-size:.8rem;opacity:.65;margin-top:.1rem">Hướng dẫn lấy lại mật khẩu</div>
+        </div>
+      </div>
+    </div>
+    <div style="background:#fff;padding:1.5rem;font-size:.88rem;color:#374151;line-height:1.8">
+      <p>Hệ thống <strong>không hỗ trợ tự đặt lại mật khẩu</strong>. Vui lòng liên hệ trợ lý với đầy đủ thông tin xác minh.</p>
+      <button onclick="document.getElementById('forgotPwModal').classList.remove('open')" style="margin-top:1rem;width:100%;padding:.7rem;background:linear-gradient(135deg,#1e3a5f,#0f172a);color:#fff;border:none;border-radius:10px;font-weight:700;cursor:pointer;font-size:.9rem">Đã hiểu ✓</button>
+    </div>
+  </div>
+</div>
+
+<!-- THÔNG BÁO GIÁM SÁT -->
+<div id="monitorNotice" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:1rem;text-align:center;padding:2rem">
+  <div style="font-size:3rem">⚠️</div>
+  <div style="color:#ffcc00;font-size:1.2rem;font-weight:800">CẢNH BÁO</div>
+  <div style="color:#fff;font-size:.9rem;max-width:340px;line-height:1.8">Nghiêm cấm mọi hành vi quay màn hình, chụp màn hình hoặc ghi lại nội dung.<br/>Hệ thống đang giám sát toàn bộ hoạt động.</div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <span style="width:10px;height:10px;background:#ff3b3b;border-radius:50%;display:inline-block;animation:monitorBlink 1s infinite"></span>
+    <span style="color:#ff3b3b;font-size:.85rem;font-weight:700">ĐANG GHI • LIVE</span>
+  </div>
+  <div style="color:#888;font-size:.78rem">Đang vào hệ thống...</div>
+  <style>@keyframes monitorBlink{0%,100%{opacity:1}50%{opacity:0}}</style>
+</div>
+
+<script>
+// ── PARTICLES ──
+(function(){
+  const wrap=document.getElementById('particles');
+  for(let i=0;i<50;i++){
+    const s=document.createElement('div');s.className='star';
+    const sz=Math.random()*2+.6;
+    const hue=Math.random()<.5?'#fff':(Math.random()<.5?'#fde68a':'#fca5a5');
+    s.style.cssText=`width:${sz}px;height:${sz}px;background:${hue};left:${Math.random()*100}%;top:${Math.random()*100}%;animation-duration:${2+Math.random()*3}s;animation-delay:${Math.random()*4}s`;
+    wrap.appendChild(s);
+  }
+  const cols=['#e74c3c','#f39c12','#f1c40f','#c0392b','#fde68a'];
+  for(let i=0;i<14;i++){
+    const p=document.createElement('div');p.className='particle';
+    const sz=Math.random()*5+3;
+    p.style.cssText=`width:${sz}px;height:${sz}px;background:${cols[i%cols.length]};left:${Math.random()*100}%;animation-duration:${10+Math.random()*12}s;animation-delay:${Math.random()*10}s`;
+    wrap.appendChild(p);
+  }
+})();
+
+if(/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent))
+  document.getElementById('deviceTip').style.display='flex';
+
+const { createClient } = supabase;
+const db = createClient(
+  'https://nzoequnbxtqaukyvsvmt.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56b2VxdW5ieHRxYXVreXZzdm10Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3NDY2MDUsImV4cCI6MjEwMTMyMjYwNX0.PFnnvkZ10EtKEH5xXA5VtgnazSYhoyBp9MpBlJCtF7g'
+);
+
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  navigator.serviceWorker.addEventListener('message',e=>{if(e.data?.type==='SW_UPDATED')window.location.reload();});
+}
+
+async function hashPw(str){
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+(async()=>{
+  const stored=localStorage.getItem('dh_teacher');
+  if(!stored||!JSON.parse(stored).hashed){
+    const h=await hashPw('admindH89065');
+    localStorage.setItem('dh_teacher',JSON.stringify({username:'admin124532Dh',passwordHash:h,full_name:'Admin',hashed:true}));
+  }
+})();
+
+(async function autoLockExpired(){
+  try{
+    const today=new Date();today.setHours(0,0,0,0);
+    const {data:classes}=await db.from('classes').select('name,end_date');
+    const expired=(classes||[]).filter(c=>c.end_date&&new Date(c.end_date)<today).map(c=>c.name);
+    if(!expired.length)return;
+    const {data:studs}=await db.from('students').select('id,class_name').eq('active',true).eq('manually_unlocked',false);
+    if(!studs?.length)return;
+    const tolock=studs.filter(s=>{
+      const cls=(s.class_name||'').split(',').map(c=>c.trim()).filter(Boolean);
+      return cls.length>0&&cls.every(c=>expired.includes(c));
+    }).map(s=>s.id);
+    if(tolock.length)await db.from('students').update({active:false}).in('id',tolock);
+  }catch(e){}
+})();
+
+document.getElementById('loginForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const btn=document.getElementById('loginBtn');
+  const btnText=document.getElementById('loginBtnText');
+  const btnLoader=document.getElementById('loginBtnLoader');
+  btnText.style.display='none';
+  btnLoader.style.display='flex';
+  btn.disabled=true;
+
+  const u=document.getElementById('usernameInput').value.trim();
+  const p=document.getElementById('passwordInput').value.trim();
+  const pRaw=document.getElementById('passwordInput').value;
+  const err=document.getElementById('loginError');
+  err.textContent='';
+
+  function resetLoading(msg){
+    btnText.style.display='';btnLoader.style.display='none';btn.disabled=false;
+    if(msg)err.textContent=msg;
+  }
+
+  try{
+    // ── Force reset hash nếu cần ──
+    let teacher=JSON.parse(localStorage.getItem('dh_teacher')||'null');
+    if(!teacher||!teacher.hashed){
+      const h=await hashPw('admindH89065');
+      teacher={username:'admin124532Dh',passwordHash:h,full_name:'Admin',hashed:true};
+      localStorage.setItem('dh_teacher',JSON.stringify(teacher));
+    }
+    const inputHash=await hashPw(p);
+    const inputHashRaw=await hashPw(pRaw);
+
+    if(u===teacher.username&&inputHash===teacher.passwordHash){
+      localStorage.removeItem('dh_admin_attempts');
+      sessionStorage.setItem('dh_role','teacher');
+      sessionStorage.setItem('dh_user',u);
+      sessionStorage.setItem('dh_name',teacher.full_name);
+      sessionStorage.removeItem('dh_teacher_class'); // Admin gốc không có lớp phân công
+      window.location.href='admin.html';return;
+    }
+    if(u===teacher.username){
+      const att=(parseInt(localStorage.getItem('dh_admin_attempts')||'0'))+1;
+      localStorage.setItem('dh_admin_attempts',att);
+      resetLoading(`Sai mật khẩu. (${att} lần)`);
+      if(att>=3)await db.from('alerts').insert({username:u,student_name:'Không xác định',class_name:'',reason:`Cố đăng nhập Admin sai ${att} lần`});
+      return;
+    }
+
+    const {data:asst}=await db.from('assistants').select('*').eq('username',u).maybeSingle();
+    if(asst){
+      if(asst.password!==p&&asst.password!==inputHash){resetLoading('Sai mật khẩu trợ lý.');return;}
+      sessionStorage.setItem('dh_role','assistant');
+      sessionStorage.setItem('dh_user',u);
+      sessionStorage.setItem('dh_name',asst.full_name||u);
+      sessionStorage.removeItem('dh_teacher_class'); // Trợ lý không có lớp phân công
+      window.location.href='admin.html';return;
+    }
+
+    // ── GIÁO VIÊN (lưu trong Supabase) ──
+    const {data:gv}=await db.from('teachers').select('*').eq('username',u).maybeSingle();
+    if(gv){
+      if(!gv.active){resetLoading('Tài khoản giáo viên đã bị khóa.');return;}
+      const isGvMatch=gv.password===p||gv.password===inputHash||gv.password===inputHashRaw;
+      if(!isGvMatch){resetLoading('Sai mật khẩu giáo viên.');return;}
+      sessionStorage.setItem('dh_role','teacher');
+      sessionStorage.setItem('dh_user',u);
+      sessionStorage.setItem('dh_name',gv.full_name||u);
+      sessionStorage.removeItem('dh_teacher_class'); // xóa giá trị cũ trước
+      if(gv.class_name) sessionStorage.setItem('dh_teacher_class',gv.class_name);
+      window.location.href='admin.html';return;
+    }
+    const {data:student}=await db.from('students').select('*').eq('username',u).single();
+    if(!student){resetLoading('Sai tên đăng nhập hoặc mật khẩu.');return;}
+
+    const isPlain=student.password===p||student.password===p.toLowerCase()||student.password===p.toUpperCase();
+    const isHash=student.password===inputHash||student.password===inputHashRaw;
+
+    if(!isPlain&&!isHash){
+      const att=(student.login_attempts||0)+1;
+      const upd={login_attempts:att};
+      if(att>=5){
+        upd.active=false;
+        await db.from('students').update(upd).eq('id',student.id);
+        await db.from('alerts').insert({username:u,student_name:student.full_name,class_name:student.class_name||'',reason:`Sai mật khẩu ${att} lần - bị khóa`});
+        resetLoading(`Tài khoản bị khóa do nhập sai ${att} lần.`);
+      }else{
+        await db.from('students').update(upd).eq('id',student.id);
+        if(att>=3)await db.from('alerts').insert({username:u,student_name:student.full_name,class_name:student.class_name||'',reason:`Sai mật khẩu ${att} lần`});
+        resetLoading(`Sai mật khẩu. Còn ${5-att} lần trước khi bị khóa.`);
+      }
+      return;
+    }
+
+    if(!student.active){
+      if(student.class_name){
+        const cls2=student.class_name.split(',').map(c=>c.trim()).filter(Boolean);
+        if(cls2.length){
+          const {data:cl2}=await db.from('classes').select('name,end_date').in('name',cls2);
+          if(cl2?.length){
+            const t2=new Date();t2.setHours(0,0,0,0);
+            const exp=cl2.filter(c=>c.end_date&&new Date(c.end_date)<t2);
+            if(exp.length===cl2.length){
+              const latest=exp.reduce((a,b)=>new Date(a.end_date)>new Date(b.end_date)?a:b);
+              resetLoading(`Khóa học đã kết thúc (${new Date(latest.end_date).toLocaleDateString('vi-VN')}).`);return;
+            }
+          }
+        }
+      }
+      resetLoading('Tài khoản đã bị khóa.');return;
+    }
+
+    if(student.class_name&&!student.manually_unlocked){
+      const cls=student.class_name.split(',').map(c=>c.trim()).filter(Boolean);
+      if(cls.length){
+        const {data:clsList}=await db.from('classes').select('name,end_date').in('name',cls);
+        if(clsList?.length){
+          const today=new Date();today.setHours(0,0,0,0);
+          const active=clsList.filter(c=>!c.end_date||new Date(c.end_date)>=today);
+          if(active.length===0){
+            if(student.active)await db.from('students').update({active:false}).eq('id',student.id);
+            const latest=clsList.reduce((a,b)=>new Date(a.end_date)>new Date(b.end_date)?a:b);
+            resetLoading(`Tất cả khóa học đã kết thúc (${new Date(latest.end_date).toLocaleDateString('vi-VN')}).`);return;
+          }
+        }
+      }
+    }
+
+    const now=new Date();
+    if(student.last_login){
+      const diff=(now-new Date(student.last_login))/1000/60;
+      if(diff<5&&student.session_token)
+        await db.from('alerts').insert({username:u,student_name:student.full_name,class_name:student.class_name||'',reason:'Đăng nhập thiết bị khác trong 5 phút'});
+    }
+
+    const token=crypto.getRandomValues(new Uint8Array(16)).reduce((s,b)=>s+b.toString(16).padStart(2,'0'),'')+Date.now().toString(36);
+    const payload={session_token:token,login_attempts:0,last_login:now.toISOString(),is_online:true,last_seen:now.toISOString()};
+    if(isPlain||student.password===inputHashRaw)payload.password=await hashPw(p);
+    await db.from('students').update(payload).eq('id',student.id);
+
+    const hadOld=!!student.session_token;
+    if(hadOld)await db.from('alerts').insert({username:u,student_name:student.full_name,class_name:student.class_name||'',reason:'Đăng nhập thiết bị mới — thiết bị cũ bị đăng xuất'});
+
+    sessionStorage.setItem('dh_role','student');sessionStorage.setItem('dh_user',u);
+    sessionStorage.setItem('dh_name',student.full_name);sessionStorage.setItem('dh_token',token);
+    sessionStorage.setItem('dh_code',student.student_code||u);
+
+    const ua=navigator.userAgent;
+    const browser=ua.includes('Chrome')&&!ua.includes('Edg')?'Chrome':ua.includes('Safari')&&!ua.includes('Chrome')?'Safari':ua.includes('Firefox')?'Firefox':ua.includes('Edg')?'Edge':'Khác';
+    const os=ua.includes('Windows')?'Windows':/iPhone|iPad/.test(ua)?'iOS':ua.includes('Android')?'Android':ua.includes('Mac')?'macOS':'Khác';
+    const dt=/Mobi|Android|iPhone|iPad/i.test(ua)?'Mobile':'Desktop';
+    try{db.from('login_logs').insert({username:u,student_name:student.full_name,class_name:student.class_name||'',device_info:`${browser} • ${os} • ${dt}`,browser,os,device_type:dt}).then(()=>{});}catch(e){}
+
+    const notice=document.getElementById('monitorNotice');
+    if(hadOld){
+      const extra=document.createElement('div');
+      extra.style.cssText='margin-top:.5rem;font-size:.82rem;color:#f59e0b;font-weight:600';
+      extra.textContent='⚠️ Thiết bị đăng nhập trước đó đã bị đăng xuất.';
+      notice.appendChild(extra);
+    }
+    notice.style.display='flex';
+    setTimeout(()=>{window.location.href='student.html';},5000);
+
+  }catch(err2){
+    console.error(err2);
+    resetLoading('Có lỗi xảy ra. Vui lòng thử lại.');
+  }
+});
+
+// ── BẢO MẬT ──
+document.addEventListener('contextmenu',e=>e.preventDefault(),true);
+document.addEventListener('keydown',e=>{
+  const ctrl=e.ctrlKey||e.metaKey;
+  const inInput=['INPUT','TEXTAREA'].includes(e.target.tagName);
+  if(['Tab','Enter','Backspace','ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Delete'].includes(e.key))return;
+  if(ctrl&&inInput&&['a','A','c','C','v','V','x','X'].includes(e.key))return;
+  if(ctrl&&['c','C','a','A'].includes(e.key))return;
+  if(ctrl&&['u','U','s','S','p','P'].includes(e.key)){e.preventDefault();return;}
+  if(ctrl&&e.shiftKey&&['i','I','j','J','c','C'].includes(e.key)){e.preventDefault();return;}
+  if(ctrl){e.preventDefault();return;}
+  if(e.altKey&&e.key!=='Alt'){e.preventDefault();return;}
+  if(/^F\d+$/.test(e.key)){e.preventDefault();return;}
+},true);
+document.addEventListener('dragstart',e=>e.preventDefault(),true);
+if(window.top!==window.self)window.top.location=window.self.location;
+document.addEventListener('wheel',e=>{if(e.ctrlKey)e.preventDefault();},{passive:false});
+</script>
+</body>
+</html>

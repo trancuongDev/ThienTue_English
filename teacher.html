@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Thiên Tuệ English - Teacher</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="bg-gray-50">
+<div id="sidebarOverlay" class="sidebar-overlay" onclick="closeMobileSidebar()"></div>
+<aside id="sidebar" class="sidebar">
+  <div class="sidebar-logo">
+    <div class="flex items-center gap-2">
+      <div class="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center">
+        <i class="fas fa-chalkboard-teacher text-white"></i>
+      </div>
+      <div>
+        <div class="text-white font-black text-base">Thiên Tuệ</div>
+        <div class="text-indigo-300 text-xs">Teacher Portal</div>
+      </div>
+    </div>
+  </div>
+  <nav class="sidebar-nav mt-4" id="sidebarNav"></nav>
+  <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-white/10">
+    <button onclick="logout()" class="flex items-center gap-2 text-indigo-300 hover:text-white transition-colors text-sm w-full">
+      <i class="fas fa-sign-out-alt"></i>
+      <span data-i18n="logout">Đăng xuất</span>
+    </button>
+  </div>
+</aside>
+<div class="main-content">
+  <header class="topbar">
+    <div class="flex items-center gap-3">
+      <button class="mobile-menu-btn text-gray-600 hover:text-indigo-600 text-xl" onclick="openMobileSidebar()">
+        <i class="fas fa-bars"></i>
+      </button>
+      <h2 class="font-bold text-gray-900 text-lg hidden sm:block">Teacher Dashboard</h2>
+    </div>
+    <div class="flex items-center gap-3">
+      <button id="langToggleBtn" onclick="toggleLang()" class="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg font-bold text-sm hover:bg-indigo-100 transition-colors">EN</button>
+      <div class="flex items-center gap-2">
+        <div id="topbarAvatar" class="w-9 h-9 bg-emerald-600 rounded-full flex items-center justify-center text-white font-bold text-sm"></div>
+        <span class="text-gray-700 font-semibold text-sm hidden sm:block" id="topbarUserName"></span>
+      </div>
+    </div>
+  </header>
+  <main class="p-4 lg:p-6">
+
+    <!-- DASHBOARD -->
+    <section id="section-dashboard" class="content-section">
+      <h2 class="text-xl font-black text-gray-900 mb-6" data-i18n="dashboard">Dashboard</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div class="stat-card flex items-center gap-4">
+          <div class="w-14 h-14 bg-indigo-100 rounded-2xl flex items-center justify-center">
+            <i class="fas fa-user-graduate text-2xl text-indigo-600"></i>
+          </div>
+          <div>
+            <div class="text-3xl font-black text-gray-900" id="dashTotalStudents">0</div>
+            <div class="text-sm text-gray-500" data-i18n="totalStudents">Tổng học sinh</div>
+          </div>
+        </div>
+        <div class="stat-card flex items-center gap-4">
+          <div class="w-14 h-14 bg-emerald-100 rounded-2xl flex items-center justify-center">
+            <i class="fas fa-book text-2xl text-emerald-600"></i>
+          </div>
+          <div>
+            <div class="text-3xl font-black text-gray-900" id="dashTotalLessons">0</div>
+            <div class="text-sm text-gray-500" data-i18n="totalLessonsUploaded">Bài học đã đăng</div>
+          </div>
+        </div>
+        <div class="stat-card flex items-center gap-4">
+          <div class="w-14 h-14 bg-amber-100 rounded-2xl flex items-center justify-center">
+            <i class="fas fa-calendar-check text-2xl text-amber-600"></i>
+          </div>
+          <div>
+            <div class="text-3xl font-black text-gray-900" id="dashTodayClasses">0</div>
+            <div class="text-sm text-gray-500" data-i18n="todayClasses">Lớp học hôm nay</div>
+          </div>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-white rounded-2xl p-5 shadow-sm">
+          <h3 class="font-bold text-gray-900 mb-4">Bài học gần đây</h3>
+          <div id="dashRecentLessons" class="space-y-2"></div>
+        </div>
+        <div class="bg-white rounded-2xl p-5 shadow-sm">
+          <h3 class="font-bold text-gray-900 mb-4" data-i18n="teachSchedule">Lịch dạy</h3>
+          <div id="dashSchedule" class="space-y-2"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ATTENDANCE MANAGER -->
+    <section id="section-attendanceManager" class="content-section">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+        <h2 class="text-xl font-black text-gray-900">Điểm danh học sinh</h2>
+        <button onclick="openAttendanceModal()" class="btn-primary flex items-center gap-2">
+          <i class="fas fa-clipboard-check"></i> Điểm danh buổi học
+        </button>
+      </div>
+      <!-- Filter -->
+      <div class="flex flex-wrap gap-3 mb-5">
+        <select id="attClassFilter" onchange="renderAttendanceManager()" class="form-input w-auto">
+          <option value="all">Tất cả lớp</option>
+          <option value="A1">A1</option><option value="B2">B2</option>
+          <option value="C3">C3</option><option value="D4">D4</option>
+        </select>
+        <select id="attMonthFilter" onchange="renderAttendanceManager()" class="form-input w-auto">
+          <option value="1">Tháng 1</option><option value="2">Tháng 2</option>
+          <option value="3">Tháng 3</option><option value="4">Tháng 4</option>
+          <option value="5">Tháng 5</option><option value="6">Tháng 6</option>
+          <option value="7">Tháng 7</option><option value="8">Tháng 8</option>
+          <option value="9">Tháng 9</option><option value="10">Tháng 10</option>
+          <option value="11">Tháng 11</option><option value="12">Tháng 12</option>
+        </select>
+      </div>
+      <!-- Stats -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5" id="attManagerStats"></div>
+      <!-- Table -->
+      <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="data-table">
+            <thead><tr>
+              <th>Học sinh</th><th>Lớp</th>
+              <th>Có mặt</th><th>Đi muộn</th><th>Vắng</th>
+              <th>Tỷ lệ</th><th>Ghi chú gần nhất</th>
+            </tr></thead>
+            <tbody id="attManagerBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- GRAMMAR MANAGER -->
+    <section id="section-grammarManager" class="content-section">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-black text-gray-900" data-i18n="grammarManager">Quản lý ngữ pháp</h2>
+        <button onclick="openAddGrammarModal()" class="btn-primary flex items-center gap-2">
+          <i class="fas fa-plus"></i> <span>Thêm chủ điểm</span>
+        </button>
+      </div>
+      <!-- Tabs -->
+      <div class="flex gap-2 mb-6">
+        <button onclick="switchGrammarManagerTab('topics')" id="gmTabTopics" class="px-4 py-2 rounded-xl font-semibold text-sm bg-indigo-600 text-white">
+          <i class="fas fa-list mr-1"></i>Chủ điểm ngữ pháp
+        </button>
+        <button onclick="switchGrammarManagerTab('exercises')" id="gmTabExercises" class="px-4 py-2 rounded-xl font-semibold text-sm bg-gray-100 text-gray-600 hover:bg-indigo-50">
+          <i class="fas fa-pencil-alt mr-1"></i>Bài tập ngữ pháp
+        </button>
+      </div>
+      <!-- Topics list -->
+      <div id="gmTopicsTab">
+        <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="data-table">
+              <thead><tr>
+                <th>Chủ điểm</th><th>Cấp độ</th><th>Số quy tắc</th><th>Số bài tập</th><th data-i18n="actions">Thao tác</th>
+              </tr></thead>
+              <tbody id="grammarTopicsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <!-- Exercises list -->
+      <div id="gmExercisesTab" class="hidden">
+        <div class="flex items-center justify-between mb-4">
+          <p class="text-sm text-gray-500">Danh sách bài tập ngữ pháp đã tạo</p>
+          <button onclick="openAddGrammarExModal()" class="btn-secondary flex items-center gap-2 text-sm px-4 py-2">
+            <i class="fas fa-plus"></i> Thêm bài tập
+          </button>
+        </div>
+        <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="data-table">
+              <thead><tr>
+                <th>Câu hỏi</th><th>Chủ điểm</th><th>Dạng</th><th>Đáp án đúng</th><th data-i18n="actions">Thao tác</th>
+              </tr></thead>
+              <tbody id="grammarExTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MANAGE LESSONS -->
+    <section id="section-manageLesson" class="content-section">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-black text-gray-900" data-i18n="manageLesson">Quản lý bài học</h2>
+        <button onclick="openAddLessonModal()" class="btn-primary flex items-center gap-2">
+          <i class="fas fa-plus"></i> <span data-i18n="addLesson">Thêm bài học</span>
+        </button>
+      </div>
+      <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="data-table">
+            <thead><tr>
+              <th data-i18n="title">Tiêu đề</th>
+              <th>Chủ đề</th>
+              <th data-i18n="level">Cấp độ</th>
+              <th data-i18n="duration">Thời lượng</th>
+              <th data-i18n="date">Ngày</th>
+              <th data-i18n="actions">Thao tác</th>
+            </tr></thead>
+            <tbody id="lessonTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- UPLOAD DOC -->
+    <section id="section-uploadDoc" class="content-section">
+      <h2 class="text-xl font-black text-gray-900 mb-6">Upload Video & Tài liệu</h2>
+
+      <!-- Tab switch -->
+      <div class="flex gap-2 mb-6">
+        <button onclick="switchUploadTab('video')" id="uploadTabVideo"
+          class="px-5 py-2.5 rounded-xl font-semibold text-sm bg-indigo-600 text-white flex items-center gap-2 transition-colors">
+          <i class="fas fa-video"></i> Video
+        </button>
+        <button onclick="switchUploadTab('doc')" id="uploadTabDoc"
+          class="px-5 py-2.5 rounded-xl font-semibold text-sm bg-gray-100 text-gray-600 hover:bg-indigo-50 flex items-center gap-2 transition-colors">
+          <i class="fas fa-file-alt"></i> Tài liệu
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <!-- LEFT: Form -->
+        <div class="lg:col-span-2">
+
+          <!-- VIDEO FORM -->
+          <div id="uploadVideoForm" class="bg-white rounded-2xl p-6 shadow-sm">
+            <div class="flex items-center gap-2 mb-5">
+              <div class="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center">
+                <i class="fas fa-video text-indigo-600 text-sm"></i>
+              </div>
+              <h3 class="font-bold text-gray-900">Thêm video bài học</h3>
+            </div>
+            <form id="videoUploadForm" onsubmit="event.preventDefault();handleVideoUpload()" class="space-y-4">
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1.5">Tiêu đề video <span class="text-red-500">*</span></label>
+                <input id="videoTitleInput" type="text" class="form-input" placeholder="VD: Present Perfect - Unit 6" required />
+              </div>
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1.5">Link video (YouTube / Drive) <span class="text-red-500">*</span></label>
+                <input id="videoUrlInput" type="url" class="form-input" placeholder="https://youtube.com/watch?v=..." required />
+                <p class="text-xs text-gray-400 mt-1">Hỗ trợ YouTube, Google Drive, Vimeo</p>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-sm font-semibold text-gray-700 mb-1.5">Lớp áp dụng <span class="text-red-500">*</span></label>
+                  <select id="videoClassInput" class="form-input">
+                    <option value="all">Tất cả lớp</option>
+                    <option value="A1">A1</option>
+                    <option value="B2">B2</option>
+                    <option value="C3">C3</option>
+                    <option value="D4">D4</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm font-semibold text-gray-700 mb-1.5">Chủ đề</label>
+                  <select id="videoTopicInput" class="form-input">
+                    <option value="grammar">Ngữ pháp</option>
+                    <option value="vocabulary">Từ vựng</option>
+                    <option value="listening">Nghe hiểu</option>
+                    <option value="speaking">Nói</option>
+                    <option value="other">Khác</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1.5">Mô tả</label>
+                <textarea id="videoDescInput" class="form-input" rows="2" placeholder="Nội dung video..."></textarea>
+              </div>
+              <button type="submit" class="btn-primary w-full py-3 flex items-center justify-center gap-2">
+                <i class="fas fa-plus-circle"></i> Thêm video
+              </button>
+            </form>
+          </div>
+
+          <!-- DOC FORM -->
+          <div id="uploadDocForm" class="bg-white rounded-2xl p-6 shadow-sm hidden">
+            <div class="flex items-center gap-2 mb-5">
+              <div class="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
+                <i class="fas fa-file-alt text-emerald-600 text-sm"></i>
+              </div>
+              <h3 class="font-bold text-gray-900">Upload tài liệu</h3>
+            </div>
+            <form id="docUploadForm" onsubmit="event.preventDefault();handleDocUpload()" class="space-y-4">
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1.5">Tên tài liệu <span class="text-red-500">*</span></label>
+                <input id="docTitleInput" type="text" class="form-input" placeholder="VD: Grammar Worksheet Unit 6" required />
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-sm font-semibold text-gray-700 mb-1.5">Lớp áp dụng <span class="text-red-500">*</span></label>
+                  <select id="docClassInput" class="form-input">
+                    <option value="all">Tất cả lớp</option>
+                    <option value="A1">A1</option>
+                    <option value="B2">B2</option>
+                    <option value="C3">C3</option>
+                    <option value="D4">D4</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm font-semibold text-gray-700 mb-1.5">Loại tài liệu</label>
+                  <select id="docTypeInput" class="form-input">
+                    <option value="pdf">PDF</option>
+                    <option value="word">Word (DOC)</option>
+                    <option value="ppt">PowerPoint</option>
+                    <option value="other">Khác</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1.5">Liên kết tới bài học</label>
+                <select id="docLessonInput" class="form-input">
+                  <option value="">-- Chọn bài học (tuỳ chọn) --</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1.5">Mô tả</label>
+                <textarea id="docDescInput" class="form-input" rows="2" placeholder="Mô tả tài liệu..."></textarea>
+              </div>
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1.5">Chọn file</label>
+                <div class="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-indigo-400 transition-colors cursor-pointer"
+                  onclick="document.getElementById('fileInput').click()">
+                  <i class="fas fa-cloud-upload-alt text-3xl text-gray-400 mb-2 block"></i>
+                  <p class="text-gray-500 text-sm">Kéo thả hoặc <span class="text-indigo-600 font-semibold">chọn file</span></p>
+                  <p class="text-xs text-gray-400 mt-1">PDF, DOC, DOCX, PPT (tối đa 50MB)</p>
+                  <p class="text-sm font-semibold text-indigo-600 mt-2" id="fileNameDisplay"></p>
+                </div>
+                <input type="file" id="fileInput" class="hidden" accept=".pdf,.doc,.docx,.ppt,.pptx" onchange="updateFileName(this)" />
+              </div>
+              <button type="submit" class="btn-primary w-full py-3 flex items-center justify-center gap-2">
+                <i class="fas fa-upload"></i> Upload tài liệu
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <!-- RIGHT: Uploaded list -->
+        <div class="lg:col-span-3 space-y-4">
+
+          <!-- Filter bar -->
+          <div class="bg-white rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row gap-3">
+            <select id="uploadListClassFilter" onchange="renderUploadedList()" class="form-input w-auto">
+              <option value="all">Tất cả lớp</option>
+              <option value="A1">A1</option>
+              <option value="B2">B2</option>
+              <option value="C3">C3</option>
+              <option value="D4">D4</option>
+            </select>
+            <select id="uploadListTypeFilter" onchange="renderUploadedList()" class="form-input w-auto">
+              <option value="all">Video & Tài liệu</option>
+              <option value="video">Chỉ Video</option>
+              <option value="doc">Chỉ Tài liệu</option>
+            </select>
+            <input type="text" id="uploadListSearch" oninput="renderUploadedList()" placeholder="Tìm kiếm..." class="form-input flex-1" />
+          </div>
+
+          <!-- List -->
+          <div id="uploadedList" class="space-y-3"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CREATE QUIZ -->
+    <section id="section-createQuiz" class="content-section">
+      <h2 class="text-xl font-black text-gray-900 mb-6" data-i18n="createQuiz">Tạo bài kiểm tra</h2>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-white rounded-2xl p-5 shadow-sm">
+          <h3 class="font-bold text-gray-900 mb-4">Thông tin bài kiểm tra</h3>
+          <div class="space-y-4 mb-5">
+            <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-1.5" data-i18n="title">Tên bài kiểm tra</label>
+              <input id="quizTitleInput" type="text" class="form-input" placeholder="VD: Grammar Test Unit 1" />
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1.5">Lớp</label>
+                <select class="form-input">
+                  <option>A1</option><option>B2</option><option>C3</option><option>D4</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1.5">Thời gian (phút)</label>
+                <input type="number" class="form-input" value="30" min="5" max="120" />
+              </div>
+            </div>
+          </div>
+          <div class="border-t pt-4">
+            <h3 class="font-bold text-gray-900 mb-3">Thêm câu hỏi</h3>
+            <div class="space-y-3">
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1" data-i18n="questionText">Nội dung câu hỏi</label>
+                <textarea id="newQuestionText" class="form-input" rows="2" placeholder="Nhập câu hỏi..."></textarea>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-xs font-semibold text-gray-600 mb-1">A.</label>
+                  <input id="newOpt0" type="text" class="form-input" placeholder="Đáp án A" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-gray-600 mb-1">B.</label>
+                  <input id="newOpt1" type="text" class="form-input" placeholder="Đáp án B" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-gray-600 mb-1">C.</label>
+                  <input id="newOpt2" type="text" class="form-input" placeholder="Đáp án C" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-gray-600 mb-1">D.</label>
+                  <input id="newOpt3" type="text" class="form-input" placeholder="Đáp án D" />
+                </div>
+              </div>
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1" data-i18n="correctAnswer">Đáp án đúng</label>
+                <select id="newCorrect" class="form-input">
+                  <option value="0">A</option><option value="1">B</option><option value="2">C</option><option value="3">D</option>
+                </select>
+              </div>
+              <button onclick="addQuizQuestion()" class="btn-secondary w-full py-2.5 flex items-center justify-center gap-2">
+                <i class="fas fa-plus"></i> <span data-i18n="addQuestion">Thêm câu hỏi</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="bg-white rounded-2xl p-5 shadow-sm">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-bold text-gray-900">Câu hỏi đã thêm (<span id="quizQuestionCount">0</span>)</h3>
+          </div>
+          <div id="quizBuilderQuestions" class="space-y-3 mb-4 min-h-32"></div>
+          <button onclick="saveQuiz()" class="btn-primary w-full py-3 flex items-center justify-center gap-2">
+            <i class="fas fa-save"></i> <span data-i18n="createQuizBtn">Tạo bài kiểm tra</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- MANAGE CLASS -->
+    <section id="section-manageClass" class="content-section">
+      <h2 class="text-xl font-black text-gray-900 mb-6" data-i18n="manageClass">Quản lý lớp</h2>
+      <div class="flex gap-2 mb-4" id="myClassTabs"></div>
+      <div class="bg-white rounded-2xl shadow-sm p-5" id="classStudentList"></div>
+    </section>
+
+    <!-- TEACH SCHEDULE -->
+    <section id="section-teachSchedule" class="content-section">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-black text-gray-900" data-i18n="weekSchedule">Lịch dạy trong tuần</h2>
+        <button onclick="openAddScheduleModal()" class="btn-primary flex items-center gap-2">
+          <i class="fas fa-plus"></i> <span data-i18n="addSchedule">Thêm lịch dạy</span>
+        </button>
+      </div>
+      <div id="teachScheduleGrid" class="grid grid-cols-7 gap-2"></div>
+    </section>
+
+    <!-- VOCAB MANAGER -->
+    <section id="section-vocabManager" class="content-section">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+        <h2 class="text-xl font-black text-gray-900" data-i18n="vocabManager">Quản lý từ vựng</h2>
+        <button onclick="openAddVocabModal()" class="btn-primary flex items-center gap-2">
+          <i class="fas fa-plus"></i> <span>Thêm từ vựng</span>
+        </button>
+      </div>
+      <!-- Search & filter -->
+      <div class="flex flex-col sm:flex-row gap-3 mb-4">
+        <input type="text" id="vocabSearchInput" placeholder="Tìm từ vựng..." class="form-input w-full sm:w-64" oninput="renderVocabTable()" />
+        <select id="vocabCategoryFilter" class="form-input w-auto" onchange="renderVocabTable()">
+          <option value="all">Tất cả loại từ</option>
+          <option value="noun">Danh từ (Noun)</option>
+          <option value="verb">Động từ (Verb)</option>
+          <option value="adjective">Tính từ (Adjective)</option>
+          <option value="adverb">Trạng từ (Adverb)</option>
+          <option value="abstract">Trừu tượng</option>
+        </select>
+      </div>
+      <!-- Stats bar -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5" id="vocabStatsBar"></div>
+      <!-- Table -->
+      <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="data-table">
+            <thead><tr>
+              <th>Từ vựng</th>
+              <th>Phiên âm</th>
+              <th>Nghĩa (VI)</th>
+              <th>Nghĩa (EN)</th>
+              <th>Loại từ</th>
+              <th>Ví dụ</th>
+              <th data-i18n="actions">Thao tác</th>
+            </tr></thead>
+            <tbody id="vocabTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEND NOTIFICATION -->
+    <section id="section-sendNotif" class="content-section">
+      <h2 class="text-xl font-black text-gray-900 mb-6" data-i18n="sendNotif">Gửi thông báo</h2>
+      <div class="max-w-xl">
+        <div class="bg-white rounded-2xl p-6 shadow-sm">
+          <form onsubmit="sendNotification(event)" class="space-y-4">
+            <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-1.5" data-i18n="sendTo">Gửi đến</label>
+              <select class="form-input">
+                <option value="all" data-i18n="allStudents">Tất cả học sinh</option>
+                <option value="A1">Lớp A1</option>
+                <option value="B2">Lớp B2</option>
+                <option value="C3">Lớp C3</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-1.5" data-i18n="title">Tiêu đề</label>
+              <input type="text" class="form-input" placeholder="Nhập tiêu đề thông báo..." required />
+            </div>
+            <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-1.5" data-i18n="notifContent">Nội dung thông báo</label>
+              <textarea class="form-input" rows="5" placeholder="Nhập nội dung thông báo..." required></textarea>
+            </div>
+            <div class="flex items-center gap-3 p-3 bg-amber-50 rounded-xl text-sm text-amber-700">
+              <i class="fas fa-info-circle flex-shrink-0"></i>
+              <span>Thông báo sẽ được gửi đến tất cả học sinh trong lớp đã chọn.</span>
+            </div>
+            <button type="submit" class="btn-primary w-full py-3 flex items-center justify-center gap-2">
+              <i class="fas fa-paper-plane"></i> <span data-i18n="sendBtn">Gửi thông báo</span>
+            </button>
+          </form>
+        </div>
+        <div class="bg-white rounded-2xl p-5 shadow-sm mt-4">
+          <h3 class="font-bold text-gray-900 mb-4">Thông báo đã gửi</h3>
+          <div class="space-y-3">
+            <div class="p-3 bg-gray-50 rounded-xl">
+              <div class="flex items-start justify-between">
+                <p class="font-semibold text-sm text-gray-900">Bài kiểm tra giữa kỳ</p>
+                <span class="text-xs text-gray-400">29/01/2024</span>
+              </div>
+              <p class="text-xs text-gray-500 mt-1">Nhắc nhở các em học sinh chuẩn bị cho bài kiểm tra...</p>
+              <div class="flex items-center gap-2 mt-2">
+                <span class="badge bg-indigo-100 text-indigo-700 text-xs">Lớp A1</span>
+                <span class="badge bg-emerald-100 text-emerald-700 text-xs"><i class="fas fa-check mr-1"></i>Đã gửi</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- Attendance Modal -->
+<div id="attendanceModal" class="modal-overlay" onclick="if(event.target===this)closeAttendanceModal()">
+  <div class="modal-box max-w-2xl">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="font-bold text-lg text-gray-900">Điểm danh buổi học</h3>
+      <button onclick="closeAttendanceModal()" class="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center hover:bg-gray-200"><i class="fas fa-times text-gray-600"></i></button>
+    </div>
+    <div class="grid grid-cols-2 gap-3 mb-5">
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Lớp</label>
+        <select id="attModalClass" onchange="loadAttendanceStudents()" class="form-input">
+          <option value="A1">A1</option><option value="B2">B2</option>
+          <option value="C3">C3</option><option value="D4">D4</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Ngày học</label>
+        <input id="attModalDate" type="date" class="form-input" />
+      </div>
+    </div>
+    <div id="attStudentList" class="space-y-2 max-h-72 overflow-y-auto mb-5 pr-1"></div>
+    <div class="flex gap-3">
+      <button onclick="saveAttendance()" class="btn-primary flex-1 py-2.5 flex items-center justify-center gap-2">
+        <i class="fas fa-save"></i> Lưu điểm danh
+      </button>
+      <button onclick="closeAttendanceModal()" class="btn-outline flex-1 py-2.5">Hủy</button>
+    </div>
+  </div>
+</div>
+
+<!-- Vocab Modal -->
+<div id="vocabModal" class="modal-overlay" onclick="if(event.target===this)closeVocabModal()">
+  <div class="modal-box">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="font-bold text-lg text-gray-900" id="vocabModalTitle">Thêm từ vựng</h3>
+      <button onclick="closeVocabModal()" class="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center hover:bg-gray-200"><i class="fas fa-times text-gray-600"></i></button>
+    </div>
+    <form id="vocabForm" onsubmit="event.preventDefault();saveVocab()" class="space-y-4">
+      <input type="hidden" id="vocabIdField" />
+      <div class="grid grid-cols-2 gap-3">
+        <div class="col-span-2">
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Từ vựng <span class="text-red-500">*</span></label>
+          <input id="vocabWordInput" type="text" class="form-input" placeholder="VD: Perseverance" required />
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Phiên âm</label>
+          <input id="vocabPronunInput" type="text" class="form-input" placeholder="VD: /ˌpɜːrsɪˈvɪərəns/" />
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Loại từ</label>
+          <select id="vocabCategoryInput" class="form-input">
+            <option value="noun">Danh từ (Noun)</option>
+            <option value="verb">Động từ (Verb)</option>
+            <option value="adjective">Tính từ (Adjective)</option>
+            <option value="adverb">Trạng từ (Adverb)</option>
+            <option value="abstract">Trừu tượng</option>
+            <option value="phrase">Cụm từ (Phrase)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Nghĩa tiếng Việt <span class="text-red-500">*</span></label>
+          <input id="vocabMeaningInput" type="text" class="form-input" placeholder="VD: Sự kiên trì, bền bỉ" required />
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Nghĩa tiếng Anh</label>
+          <input id="vocabMeaningEnInput" type="text" class="form-input" placeholder="VD: Continued effort despite difficulties" />
+        </div>
+        <div class="col-span-2">
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Ví dụ minh hoạ</label>
+          <input id="vocabExampleInput" type="text" class="form-input" placeholder="VD: Her perseverance helped her pass the IELTS exam." />
+        </div>
+      </div>
+      <div class="flex gap-3 pt-2">
+        <button type="submit" class="btn-primary flex-1 py-2.5">Lưu từ vựng</button>
+        <button type="button" onclick="closeVocabModal()" class="btn-outline flex-1 py-2.5">Hủy</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Grammar Topic Modal -->
+<div id="grammarTopicModal" class="modal-overlay" onclick="if(event.target===this)closeGrammarTopicModal()">
+  <div class="modal-box max-w-2xl">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="font-bold text-lg text-gray-900" id="grammarTopicModalTitle">Thêm chủ điểm ngữ pháp</h3>
+      <button onclick="closeGrammarTopicModal()" class="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center hover:bg-gray-200"><i class="fas fa-times text-gray-600"></i></button>
+    </div>
+    <form onsubmit="event.preventDefault();saveGrammarTopic()" class="space-y-4">
+      <input type="hidden" id="grammarTopicIdField" />
+      <div class="grid grid-cols-2 gap-3">
+        <div class="col-span-2">
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Tên chủ điểm</label>
+          <input id="gtNameInput" type="text" class="form-input" placeholder="VD: Present Simple Tense" required />
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Cấp độ</label>
+          <select id="gtLevelInput" class="form-input">
+            <option value="beginner">Cơ bản</option>
+            <option value="intermediate">Trung cấp</option>
+            <option value="advanced">Nâng cao</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Màu sắc chủ đề</label>
+          <select id="gtColorInput" class="form-input">
+            <option value="indigo">Xanh tím (Indigo)</option>
+            <option value="emerald">Xanh lá (Emerald)</option>
+            <option value="amber">Vàng (Amber)</option>
+            <option value="rose">Hồng (Rose)</option>
+            <option value="cyan">Xanh lam (Cyan)</option>
+            <option value="purple">Tím (Purple)</option>
+          </select>
+        </div>
+        <div class="col-span-2">
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Mô tả ngắn</label>
+          <input id="gtDescInput" type="text" class="form-input" placeholder="Mô tả ngắn về chủ điểm..." />
+        </div>
+        <div class="col-span-2">
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Quy tắc / Cấu trúc (mỗi quy tắc một dòng)</label>
+          <div id="gtRulesContainer" class="space-y-2 mb-2"></div>
+          <button type="button" onclick="addGrammarRuleField()" class="btn-outline text-xs px-3 py-1.5 flex items-center gap-1">
+            <i class="fas fa-plus"></i> Thêm quy tắc
+          </button>
+        </div>
+        <div class="col-span-2">
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Ví dụ minh hoạ (mỗi ví dụ một dòng)</label>
+          <div id="gtExamplesContainer" class="space-y-2 mb-2"></div>
+          <button type="button" onclick="addGrammarExampleField()" class="btn-outline text-xs px-3 py-1.5 flex items-center gap-1">
+            <i class="fas fa-plus"></i> Thêm ví dụ
+          </button>
+        </div>
+      </div>
+      <div class="flex gap-3 pt-2">
+        <button type="submit" class="btn-primary flex-1 py-2.5">Lưu</button>
+        <button type="button" onclick="closeGrammarTopicModal()" class="btn-outline flex-1 py-2.5">Hủy</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Grammar Exercise Modal -->
+<div id="grammarExModal" class="modal-overlay" onclick="if(event.target===this)closeGrammarExModal()">
+  <div class="modal-box">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="font-bold text-lg text-gray-900" id="grammarExModalTitle">Thêm bài tập ngữ pháp</h3>
+      <button onclick="closeGrammarExModal()" class="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center hover:bg-gray-200"><i class="fas fa-times text-gray-600"></i></button>
+    </div>
+    <form onsubmit="event.preventDefault();saveGrammarExercise()" class="space-y-4">
+      <input type="hidden" id="grammarExIdField" />
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Chủ điểm ngữ pháp</label>
+        <select id="geTopicInput" class="form-input"></select>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Dạng bài</label>
+        <select id="geTypeInput" class="form-input" onchange="updateExerciseTypeHint(this.value)">
+          <option value="multiple">Trắc nghiệm (chọn đáp án)</option>
+          <option value="fill">Điền vào chỗ trống</option>
+          <option value="error">Tìm lỗi sai</option>
+        </select>
+        <p id="geTypeHint" class="text-xs text-indigo-500 mt-1">Học sinh chọn 1 trong 4 đáp án.</p>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Câu hỏi <span class="text-indigo-500 font-normal">(dùng ___ cho chỗ trống nếu là fill)</span></label>
+        <textarea id="geQuestionInput" class="form-input" rows="2" placeholder="VD: She ___ to school every day." required></textarea>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">A.</label>
+          <input id="geOpt0" type="text" class="form-input" placeholder="Đáp án A" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">B.</label>
+          <input id="geOpt1" type="text" class="form-input" placeholder="Đáp án B" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">C.</label>
+          <input id="geOpt2" type="text" class="form-input" placeholder="Đáp án C" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">D.</label>
+          <input id="geOpt3" type="text" class="form-input" placeholder="Đáp án D" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Đáp án đúng</label>
+        <select id="geCorrectInput" class="form-input">
+          <option value="0">A</option><option value="1">B</option><option value="2">C</option><option value="3">D</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Giải thích (tuỳ chọn)</label>
+        <input id="geExplainInput" type="text" class="form-input" placeholder="Giải thích tại sao đáp án đúng..." />
+      </div>
+      <div class="flex gap-3 pt-2">
+        <button type="submit" class="btn-primary flex-1 py-2.5">Lưu bài tập</button>
+        <button type="button" onclick="closeGrammarExModal()" class="btn-outline flex-1 py-2.5">Hủy</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Lesson Modal -->
+<div id="lessonModal" class="modal-overlay" onclick="if(event.target===this)closeLessonModal()">
+  <div class="modal-box">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="font-bold text-lg text-gray-900" id="lessonModalTitle" data-i18n="addLesson">Thêm bài học</h3>
+      <button onclick="closeLessonModal()" class="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center hover:bg-gray-200"><i class="fas fa-times text-gray-600"></i></button>
+    </div>
+    <form id="lessonForm" onsubmit="event.preventDefault();saveLesson()" class="space-y-4">
+      <input type="hidden" id="lessonIdField" />
+      <div class="grid grid-cols-2 gap-3">
+        <div class="col-span-2">
+          <label class="block text-sm font-semibold text-gray-700 mb-1" data-i18n="lessonTitle">Tên bài học</label>
+          <input id="lessonTitleInput" type="text" class="form-input" placeholder="VD: Present Perfect Tense" required />
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Chủ đề</label>
+          <select id="lessonTopicInput" class="form-input">
+            <option value="grammar">Grammar</option>
+            <option value="vocabulary">Vocabulary</option>
+            <option value="listening">Listening</option>
+            <option value="speaking">Speaking</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1" data-i18n="level">Cấp độ</label>
+          <select id="lessonLevelInput" class="form-input">
+            <option value="beginner">Beginner</option>
+            <option value="intermediate">Intermediate</option>
+            <option value="advanced">Advanced</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1" data-i18n="duration">Thời lượng (phút)</label>
+          <input id="lessonDurationInput" type="number" class="form-input" value="45" min="15" max="180" />
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1" data-i18n="videoUrl">Link video</label>
+          <input id="lessonVideoInput" type="url" class="form-input" placeholder="https://youtube.com/..." />
+        </div>
+        <div class="col-span-2">
+          <label class="block text-sm font-semibold text-gray-700 mb-1" data-i18n="description">Mô tả</label>
+          <textarea id="lessonDescInput" class="form-input" rows="3" placeholder="Mô tả nội dung bài học..."></textarea>
+        </div>
+      </div>
+      <div class="flex gap-3 pt-2">
+        <button type="submit" class="btn-primary flex-1 py-2.5" data-i18n="save">Lưu</button>
+        <button type="button" onclick="closeLessonModal()" class="btn-outline flex-1 py-2.5" data-i18n="cancel">Hủy</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Schedule Modal -->
+<div id="scheduleModal" class="modal-overlay" onclick="if(event.target===this)closeScheduleModal()">
+  <div class="modal-box">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="font-bold text-lg text-gray-900" data-i18n="addSchedule">Thêm lịch dạy</h3>
+      <button onclick="closeScheduleModal()" class="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center hover:bg-gray-200"><i class="fas fa-times text-gray-600"></i></button>
+    </div>
+    <form onsubmit="event.preventDefault();saveSchedule()" class="space-y-4">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Thứ</label>
+          <select id="schedDayInput" class="form-input">
+            <option value="1">Thứ 2</option><option value="2">Thứ 3</option><option value="3">Thứ 4</option>
+            <option value="4">Thứ 5</option><option value="5">Thứ 6</option><option value="6">Thứ 7</option><option value="0">Chủ nhật</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1" data-i18n="class">Lớp</label>
+          <select id="schedClassInput" class="form-input">
+            <option>A1</option><option>B2</option><option>C3</option><option>D4</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1" data-i18n="time">Giờ học</label>
+          <input id="schedTimeInput" type="text" class="form-input" placeholder="18:00 - 19:30" required />
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1" data-i18n="classRoom">Phòng học</label>
+          <input id="schedRoomInput" type="text" class="form-input" placeholder="Phòng 101" />
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Hình thức</label>
+          <select id="schedTypeInput" class="form-input">
+            <option value="offline">Offline</option>
+            <option value="online">Online</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Chủ đề</label>
+          <input id="schedTopicInput" type="text" class="form-input" placeholder="VD: Grammar Review" required />
+        </div>
+      </div>
+      <div class="flex gap-3 pt-2">
+        <button type="submit" class="btn-primary flex-1 py-2.5" data-i18n="save">Lưu</button>
+        <button type="button" onclick="closeScheduleModal()" class="btn-outline flex-1 py-2.5" data-i18n="cancel">Hủy</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Confirm Modal -->
+<div id="confirmModal" class="modal-overlay" onclick="if(event.target===this)closeConfirmModal()">
+  <div class="modal-box max-w-sm text-center">
+    <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+      <i class="fas fa-exclamation-triangle text-2xl text-red-500"></i>
+    </div>
+    <h3 class="font-bold text-lg text-gray-900 mb-2" data-i18n="confirmDelete">Xác nhận xóa</h3>
+    <p class="text-gray-500 mb-6" id="confirmMsg"></p>
+    <div class="flex gap-3">
+      <button onclick="closeConfirmModal()" class="btn-outline flex-1 py-2.5" data-i18n="cancel">Hủy</button>
+      <button id="confirmOkBtn" class="btn-danger flex-1 py-2.5" data-i18n="deleteConfirm">Xóa</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/i18n.js"></script>
+<script src="js/data.js"></script>
+<script src="js/supabase.js"></script>
+<script src="js/teacher.js"></script>
+<script>
+function openMobileSidebar() {
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('sidebarOverlay').classList.add('active');
+}
+function closeMobileSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebarOverlay').classList.remove('active');
+}
+</script>
+</body>
+</html>
