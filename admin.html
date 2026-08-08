@@ -27,6 +27,33 @@
     /* Dropdown công cụ */
     #toolsDropdownMenu button:hover { background: var(--bg) !important; }
     #toolsDropdownBtn:hover { border-color: var(--primary); color: var(--primary); }
+    .st-game-tab { padding:.45rem .9rem;border:1.5px solid var(--border);border-radius:999px;background:var(--card);color:var(--text);font-size:.82rem;font-weight:700;cursor:pointer;transition:all .15s; }
+    .st-game-tab.active,.st-game-tab:hover { background:var(--primary-light);border-color:var(--primary);color:var(--primary); }
+    .adm-mode-tab { padding:.45rem 1rem;border:1.5px solid var(--border);border-radius:10px;background:var(--card);color:var(--text);font-size:.85rem;font-weight:700;cursor:pointer;transition:all .15s; }
+    .adm-mode-tab.active { background:var(--primary-light);border-color:var(--primary);color:var(--primary); }
+    .adm-mode-switch { display:inline-flex;background:var(--bg);border:1.5px solid var(--border);border-radius:11px;padding:3px;gap:2px;flex-shrink:0; }
+    .adm-mode-switch .adm-mode-tab { border:none;border-radius:8px;padding:.42rem .85rem;font-size:.82rem;background:transparent;color:var(--muted); }
+    .adm-mode-switch .adm-mode-tab.active { background:var(--card);color:var(--primary);box-shadow:0 1px 4px rgba(0,0,0,.08); }
+    #grammarQPanel .adm-mode-switch .adm-mode-tab.active { background:#fff;color:#059669; }
+    .st-theory-tag {
+      display:inline-flex;align-items:center;gap:.4rem;padding:.48rem 1rem;border-radius:999px;
+      border:2px solid #10b981;background:#ecfdf5;color:#065f46;font-size:.84rem;font-weight:700;
+      cursor:pointer;transition:all .18s;margin-bottom:.75rem;
+    }
+    .st-theory-tag:hover { background:#d1fae5;border-color:#059669; }
+    .st-theory-tag.open { background:#d1fae5;border-color:#059669;box-shadow:0 2px 8px rgba(16,185,129,.2); }
+    .st-theory-tag-icon { font-size:.7rem;opacity:.75; }
+    .st-flashcard { perspective:1000px;width:100%;max-width:340px;height:220px;margin:0 auto;cursor:pointer; }
+    .st-flashcard-inner { position:relative;width:100%;height:100%;transition:transform .5s;transform-style:preserve-3d; }
+    .st-flashcard.flipped .st-flashcard-inner { transform:rotateY(180deg); }
+    .st-flashcard-front,.st-flashcard-back { position:absolute;inset:0;border-radius:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1.5rem;backface-visibility:hidden;box-shadow:0 8px 24px rgba(0,0,0,.12); }
+    .st-flashcard-front { background:linear-gradient(135deg,#4338ca,#6366f1);color:#fff; }
+    .st-flashcard-back { background:linear-gradient(135deg,#059669,#10b981);color:#fff;transform:rotateY(180deg); }
+    .st-match-word,.st-match-meaning { padding:.55rem 1rem;border:2px solid var(--border);border-radius:10px;background:var(--card);cursor:pointer;font-size:.87rem;font-weight:600;transition:all .18s;text-align:center; }
+    .st-match-word.selected,.st-match-meaning.selected { border-color:var(--primary);background:var(--primary-light);color:var(--primary); }
+    .st-match-word.matched,.st-match-meaning.matched { border-color:#10b981;background:#d1fae5;color:#065f46;cursor:default;opacity:.7; }
+    .st-match-word.wrong,.st-match-meaning.wrong { border-color:#ef4444;background:#fee2e2;animation:shake .3s ease; }
+    @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
   </style>
 </head>
 <body class="dashboard-page">
@@ -760,11 +787,31 @@
       <div id="vocabWordsPanel" style="display:none;margin-top:1.5rem">
         <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem;flex-wrap:wrap">
           <button onclick="closeVocabWordsPanel()" style="background:none;border:1.5px solid var(--border);border-radius:8px;padding:.4rem .8rem;cursor:pointer;font-size:.85rem;color:var(--text)">← Quay lại</button>
-          <h2 id="vocabWordsPanelTitle" style="font-size:1rem;font-weight:800;margin:0;flex:1"></h2>
-          <button class="btn-primary" style="font-size:.82rem" onclick="openAddWordModal()">➕ Thêm từ</button>
-          <button class="btn-outline" style="font-size:.82rem" onclick="openBulkWordModal()">📋 Nhập hàng loạt</button>
+          <h2 id="vocabWordsPanelTitle" style="font-size:1rem;font-weight:800;margin:0;flex:1;min-width:120px"></h2>
+          <div class="adm-mode-switch" role="tablist" aria-label="Chế độ từ vựng">
+            <button type="button" class="adm-mode-tab active" id="admVocabTabManage" onclick="admVocabSetMode('manage',this)">📝 Quản lý</button>
+            <button type="button" class="adm-mode-tab" id="admVocabTabPreview" onclick="admVocabSetMode('preview',this)">🎮 Xem HS</button>
+          </div>
+          <div id="admVocabManageActions" style="display:flex;gap:.5rem;flex-wrap:wrap">
+            <button class="btn-primary" style="font-size:.82rem" onclick="openAddWordModal()">➕ Thêm từ</button>
+            <button class="btn-outline" style="font-size:.82rem" onclick="openBulkWordModal()">📋 Nhập hàng loạt</button>
+          </div>
         </div>
-        <div id="vocabWordList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:.85rem"></div>
+        <div id="vocabManageWrap">
+          <div id="vocabWordList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:.85rem"></div>
+        </div>
+        <div id="admVocabPreviewWrap" style="display:none">
+          <div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:.65rem 1rem;margin-bottom:1rem;font-size:.82rem;color:#3730a3">
+            👁 <b>Xem trước</b> — giao diện giống học sinh: Flashcard · Điền từ · Nối từ · Trắc nghiệm
+          </div>
+          <div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap">
+            <button type="button" class="st-game-tab adm-vocab-game-tab active" data-game="flashcard" onclick="admSwitchVocabGame('flashcard',this)">🃏 Flashcard</button>
+            <button type="button" class="st-game-tab adm-vocab-game-tab" data-game="fillin" onclick="admSwitchVocabGame('fillin',this)">✏️ Điền từ</button>
+            <button type="button" class="st-game-tab adm-vocab-game-tab" data-game="match" onclick="admSwitchVocabGame('match',this)">🔗 Nối từ</button>
+            <button type="button" class="st-game-tab adm-vocab-game-tab" data-game="quiz" onclick="admSwitchVocabGame('quiz',this)">❓ Trắc nghiệm</button>
+          </div>
+          <div id="admVocabGameArea"></div>
+        </div>
       </div>
     </section>
 
@@ -788,12 +835,35 @@
       <div id="grammarQPanel" style="display:none;margin-top:1.5rem">
         <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem;flex-wrap:wrap">
           <button onclick="closeGrammarQPanel()" style="background:none;border:1.5px solid var(--border);border-radius:8px;padding:.4rem .8rem;cursor:pointer;font-size:.85rem;color:var(--text)">← Quay lại</button>
-          <h2 id="grammarQPanelTitle" style="font-size:1rem;font-weight:800;margin:0;flex:1"></h2>
-          <button class="btn-primary" style="font-size:.82rem" onclick="openAddGrammarQModal()">➕ Thêm câu hỏi</button>
+          <h2 id="grammarQPanelTitle" style="font-size:1rem;font-weight:800;margin:0;flex:1;min-width:120px"></h2>
+          <div class="adm-mode-switch" role="tablist" aria-label="Chế độ ngữ pháp">
+            <button type="button" class="adm-mode-tab active" id="admGrammarTabManage" onclick="admGrammarSetMode('manage',this)">📝 Quản lý</button>
+            <button type="button" class="adm-mode-tab" id="admGrammarTabPreview" onclick="admGrammarSetMode('preview',this)">🎮 Xem HS</button>
+          </div>
+          <div id="admGrammarManageActions">
+            <button class="btn-primary" style="font-size:.82rem" onclick="openAddGrammarQModal()">➕ Thêm câu hỏi</button>
+          </div>
         </div>
-        <!-- Preview nội dung bài -->
-        <div id="grammarLessonPreview" style="background:var(--bg);border:1.5px solid var(--border);border-radius:12px;padding:1rem 1.25rem;margin-bottom:1rem;font-size:.88rem;line-height:1.8;color:var(--text)"></div>
-        <div id="grammarQList" style="display:flex;flex-direction:column;gap:.85rem"></div>
+        <div id="grammarManageWrap">
+          <button type="button" id="admGrammarTheoryTag" class="st-theory-tag" onclick="admToggleGrammarTheory()">
+            📖 Nội dung lý thuyết <span id="admGrammarTheoryTagIcon" class="st-theory-tag-icon">▶</span>
+          </button>
+          <div id="grammarLessonPreviewWrap" style="display:none">
+            <div id="grammarLessonPreview" style="background:var(--bg);border:1.5px solid var(--border);border-radius:12px;padding:1rem 1.25rem;margin-bottom:1rem;font-size:.88rem;line-height:1.8;color:var(--text);max-height:60vh;overflow-y:auto"></div>
+          </div>
+          <div id="grammarQList" style="display:flex;flex-direction:column;gap:.85rem"></div>
+        </div>
+        <div id="admGrammarPreviewWrap" style="display:none">
+          <div style="background:#ecfdf5;border:1px solid #86efac;border-radius:10px;padding:.65rem 1rem;margin-bottom:1rem;font-size:.82rem;color:#065f46">
+            👁 <b>Xem trước</b> — giống học sinh: Trắc nghiệm · Điền chỗ trống · Nối câu (dùng cùng câu hỏi quiz, có <code>___</code> cho điền/nối)
+          </div>
+          <div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap">
+            <button type="button" class="st-game-tab adm-grammar-game-tab active" data-game="quizinfo" onclick="admSwitchGrammarGame('quizinfo',this)">❓ Trắc nghiệm</button>
+            <button type="button" class="st-game-tab adm-grammar-game-tab" data-game="fillin" onclick="admSwitchGrammarGame('fillin',this)">✏️ Điền chỗ trống</button>
+            <button type="button" class="st-game-tab adm-grammar-game-tab" data-game="match" onclick="admSwitchGrammarGame('match',this)">🔗 Nối câu</button>
+          </div>
+          <div id="admGrammarGameArea"></div>
+        </div>
       </div>
     </section>
 
@@ -1750,7 +1820,7 @@
     <div class="modal" style="max-width:560px">
       <h3 id="grammarQModalTitle" style="font-weight:800;margin-bottom:1rem">➕ Thêm câu hỏi quiz</h3>
       <input type="hidden" id="gqEditId"/>
-      <div class="form-group"><label>Câu hỏi *</label><input id="gqQuestion" placeholder="VD: Choose the correct form: She ___ to school every day."/></div>
+      <div class="form-group"><label>Câu hỏi * <span style="font-weight:400;color:var(--muted)">(dùng ___ cho điền chỗ trống / nối câu)</span></label><input id="gqQuestion" placeholder="VD: She ___ to school every day."/></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:.65rem;margin-bottom:.65rem">
         <div class="form-group" style="margin:0"><label>A</label><input id="gqA" placeholder="goes"/></div>
         <div class="form-group" style="margin:0"><label>B</label><input id="gqB" placeholder="go"/></div>
@@ -1766,13 +1836,14 @@
       <div class="form-group"><label>Giải thích (tuỳ chọn)</label><input id="gqExplanation" placeholder="VD: Thì hiện tại đơn với chủ ngữ ngôi 3 số ít dùng V-s/es"/></div>
       <div id="gqErr" style="color:var(--danger);font-size:.82rem;margin-top:.25rem"></div>
       <div class="modal-actions">
-        <button class="btn-outline" onclick="document.getElementById('grammarQModal').classList.remove('open')">Hủy</button>
-        <button class="btn-primary" onclick="saveGrammarQuestion()">💾 Lưu</button>
+        <button type="button" class="btn-outline" onclick="document.getElementById('grammarQModal').classList.remove('open')">Hủy</button>
+        <button type="button" class="btn-primary" onclick="saveGrammarQuestion()">💾 Lưu</button>
       </div>
     </div>
   </div>
 
-  <script src="admin.js"></script>
+  <script src="learning-games.js?v=2"></script>
+  <script src="admin.js?v=1.6"></script>
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(() => {});

@@ -6740,8 +6740,10 @@ async function cleanFakeClasses() {
 // ══════════════════════════════════════════════════════════════════
 let _currentVocabSetId = null;
 let _currentVocabSetTitle = '';
+let _admVocabWords = [];
 
 async function renderVocabSets() {
+  if (_currentVocabSetId) return;
   const q   = (document.getElementById('vocabSetSearch')?.value || '').toLowerCase();
   const cls = document.getElementById('vocabClassFilter')?.value || '';
   await _populateVocabClassFilter();
@@ -6751,6 +6753,10 @@ async function renderVocabSets() {
   const list = document.getElementById('vocabSetList');
   const panel = document.getElementById('vocabWordsPanel');
   if (panel) panel.style.display = 'none';
+  if (list) list.style.display = 'grid';
+  document.querySelector('#pageVocab .page-header')?.style && (document.querySelector('#pageVocab .page-header').style.display = '');
+  const vocabFilterBar = document.querySelector('#pageVocab > div:first-of-type');
+  if (vocabFilterBar) vocabFilterBar.style.display = '';
   if (!list) return;
   if (error) { list.innerHTML = `<p style="color:var(--danger)">Lỗi: ${error.message}</p>`; return; }
   const rows = (data || []).filter(s => !q || s.title.toLowerCase().includes(q));
@@ -6769,6 +6775,7 @@ async function renderVocabSets() {
       </div>
       <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.75rem">
         ${s.class_name ? `<span style="background:#eef2ff;color:#4338ca;font-size:.72rem;font-weight:700;padding:.18rem .55rem;border-radius:20px">${s.class_name}</span>` : ''}
+        <span style="font-size:.68rem;background:#f5f3ff;color:#6d28d9;padding:.12rem .4rem;border-radius:6px;font-weight:700">🃏 ✏️ 🔗 ❓</span>
       </div>
       <button onclick="openVocabWordsPanel(${s.id},'${(s.title||'').replace(/'/g,"\\'")}') "
         style="width:100%;padding:.5rem;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;border:none;border-radius:10px;cursor:pointer;font-size:.85rem;font-weight:700">
@@ -6840,16 +6847,19 @@ function deleteVocabSet(id, title) {
 async function openVocabWordsPanel(setId, title) {
   _currentVocabSetId = setId;
   _currentVocabSetTitle = title;
+  _admVocabWords = [];
   document.getElementById('vocabWordsPanelTitle').textContent = `📖 ${title}`;
   document.getElementById('vocabSetList').style.display = 'none';
   document.querySelector('#pageVocab .page-header').style.display = 'none';
   document.querySelector('#pageVocab > div:first-of-type')?.style && (document.querySelector('#pageVocab > div:first-of-type').style.display = 'none');
   document.getElementById('vocabWordsPanel').style.display = 'block';
+  admVocabSetMode('manage', document.getElementById('admVocabTabManage'));
   await renderVocabWords();
 }
 
 function closeVocabWordsPanel() {
   _currentVocabSetId = null;
+  _admVocabWords = [];
   document.getElementById('vocabWordsPanel').style.display = 'none';
   document.getElementById('vocabSetList').style.display = 'grid';
   document.querySelector('#pageVocab .page-header').style.display = '';
@@ -6864,6 +6874,7 @@ async function renderVocabWords() {
   container.innerHTML = '<div style="color:var(--muted);padding:1rem">Đang tải...</div>';
   const { data, error } = await db.from('vocab_words').select('*').eq('set_id', _currentVocabSetId).order('sort_order').order('created_at');
   if (error) { container.innerHTML = `<p style="color:var(--danger)">Lỗi: ${error.message}</p>`; return; }
+  _admVocabWords = data || [];
   if (!data?.length) { container.innerHTML = `<div style="color:var(--muted);padding:2rem;text-align:center;grid-column:1/-1">Chưa có từ nào. Bấm <b>Thêm từ</b> hoặc <b>Nhập hàng loạt</b>.</div>`; return; }
   container.innerHTML = data.map((w, i) => `
     <div style="background:var(--card);border:1.5px solid var(--border);border-radius:12px;padding:1rem;box-shadow:var(--shadow)">
@@ -6970,8 +6981,18 @@ async function deleteVocabWord(id, word) {
 // ══════════════════════════════════════════════════════════════════
 let _currentGrammarLessonId   = null;
 let _currentGrammarLessonTitle = '';
+let _admGrammarQuestions = [];
+
+async function _fetchGrammarQCounts() {
+  const { data, error } = await db.from('grammar_questions').select('lesson_id');
+  if (error) return {};
+  const m = {};
+  (data || []).forEach(r => { m[r.lesson_id] = (m[r.lesson_id] || 0) + 1; });
+  return m;
+}
 
 async function renderGrammarLessons() {
+  if (_currentGrammarLessonId) return;
   const q   = (document.getElementById('grammarSearch')?.value || '').toLowerCase();
   const cls = document.getElementById('grammarClassFilter')?.value || '';
   await _populateGrammarClassFilter();
@@ -6981,25 +7002,37 @@ async function renderGrammarLessons() {
   const list  = document.getElementById('grammarLessonList');
   const panel = document.getElementById('grammarQPanel');
   if (panel) panel.style.display = 'none';
+  if (list) list.style.display = 'grid';
+  document.querySelector('#pageGrammar .page-header')?.style && (document.querySelector('#pageGrammar .page-header').style.display = '');
+  const grammarFilterBar = document.querySelector('#pageGrammar > div:first-of-type');
+  if (grammarFilterBar) grammarFilterBar.style.display = '';
   if (!list) return;
   if (error) { list.innerHTML = `<p style="color:var(--danger)">Lỗi: ${error.message}</p>`; return; }
   const rows = (data || []).filter(s => !q || s.title.toLowerCase().includes(q));
   if (!rows.length) { list.innerHTML = `<div style="color:var(--muted);padding:2rem;text-align:center;grid-column:1/-1">Chưa có bài ngữ pháp nào.</div>`; return; }
-  list.innerHTML = rows.map(l => `
+  const qCounts = await _fetchGrammarQCounts();
+  list.innerHTML = rows.map(l => {
+    const qc = qCounts[l.id] || 0;
+    return `
     <div style="background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:1.1rem 1.25rem;box-shadow:var(--shadow)">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem;margin-bottom:.65rem">
-        <div style="font-weight:800;font-size:.95rem;color:var(--text)">📐 ${l.title}</div>
+        <div>
+          <div style="font-weight:800;font-size:.95rem;color:var(--text)">📐 ${l.title}</div>
+          <span style="font-size:.72rem;font-weight:700;margin-top:.35rem;display:inline-block;padding:.15rem .5rem;border-radius:20px;background:${qc ? '#ecfdf5' : '#fef3c7'};color:${qc ? '#047857' : '#92400e'}">❓ ${qc} câu hỏi quiz</span>
+        </div>
         <div style="display:flex;gap:.35rem;flex-shrink:0">
           <button onclick="openGrammarLessonModal(${JSON.stringify(l).replace(/"/g,'&quot;')})" style="background:none;border:1.5px solid var(--border);border-radius:8px;padding:.3rem .6rem;cursor:pointer;font-size:.8rem;color:var(--text)">✏️</button>
           <button onclick="deleteGrammarLesson(${l.id},'${(l.title||'').replace(/'/g,"\\'")}') " style="background:#fee2e2;border:none;border-radius:8px;padding:.3rem .6rem;cursor:pointer;font-size:.8rem;color:#dc2626">🗑</button>
         </div>
       </div>
       ${l.class_name ? `<span style="background:#eef2ff;color:#4338ca;font-size:.72rem;font-weight:700;padding:.18rem .55rem;border-radius:20px;display:inline-block;margin-bottom:.65rem">${l.class_name}</span>` : ''}
+      <div style="font-size:.68rem;color:var(--muted);margin-bottom:.65rem">Trò chơi HS: <b>❓ TN · ✏️ Điền · 🔗 Nối</b> (dùng câu hỏi quiz bên dưới)</div>
       <button onclick="openGrammarQPanel(${l.id},'${(l.title||'').replace(/'/g,"\\'")}') "
         style="width:100%;padding:.5rem;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:10px;cursor:pointer;font-size:.85rem;font-weight:700">
-        ❓ Quản lý câu hỏi Quiz
+        ❓ Quản lý câu hỏi Quiz${qc ? ` (${qc})` : ''}
       </button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 async function _populateGrammarClassFilter() {
@@ -7066,21 +7099,24 @@ function deleteGrammarLesson(id, title) {
 async function openGrammarQPanel(lessonId, title) {
   _currentGrammarLessonId = lessonId;
   _currentGrammarLessonTitle = title;
+  _admGrammarQuestions = [];
   document.getElementById('grammarQPanelTitle').textContent = `❓ Quiz: ${title}`;
   document.getElementById('grammarLessonList').style.display = 'none';
   document.querySelector('#pageGrammar .page-header').style.display = 'none';
   const filterBar = document.querySelector('#pageGrammar > div:first-of-type');
   if (filterBar) filterBar.style.display = 'none';
   document.getElementById('grammarQPanel').style.display = 'block';
-  // Hiện preview nội dung bài
+  admGrammarSetMode('manage', document.getElementById('admGrammarTabManage'));
   const { data: lesson } = await db.from('grammar_lessons').select('content').eq('id', lessonId).single();
   const preview = document.getElementById('grammarLessonPreview');
   if (preview && lesson) preview.innerHTML = lesson.content.replace(/\n/g, '<br>');
+  admSetGrammarTheoryOpen(false);
   await renderGrammarQuestions();
 }
 
 function closeGrammarQPanel() {
   _currentGrammarLessonId = null;
+  _admGrammarQuestions = [];
   document.getElementById('grammarQPanel').style.display = 'none';
   document.getElementById('grammarLessonList').style.display = 'grid';
   document.querySelector('#pageGrammar .page-header').style.display = '';
@@ -7095,23 +7131,34 @@ async function renderGrammarQuestions() {
   container.innerHTML = '<div style="color:var(--muted);padding:1rem">Đang tải...</div>';
   const { data, error } = await db.from('grammar_questions').select('*').eq('lesson_id', _currentGrammarLessonId).order('sort_order').order('created_at');
   if (error) { container.innerHTML = `<p style="color:var(--danger)">Lỗi: ${error.message}</p>`; return; }
-  if (!data?.length) { container.innerHTML = `<div style="color:var(--muted);padding:2rem;text-align:center">Chưa có câu hỏi. Bấm <b>Thêm câu hỏi</b>.</div>`; return; }
+  _admGrammarQuestions = data || [];
+  const titleEl = document.getElementById('grammarQPanelTitle');
+  if (titleEl && _currentGrammarLessonTitle) {
+    titleEl.textContent = `❓ Quiz: ${_currentGrammarLessonTitle} · ${data?.length || 0} câu`;
+  }
+  if (!data?.length) { container.innerHTML = `<div style="color:var(--muted);padding:2rem;text-align:center">Chưa có câu hỏi cho bài <b>${_currentGrammarLessonTitle || ''}</b>. Bấm <b>Thêm câu hỏi</b>.<br/><span style="font-size:.82rem;margin-top:.5rem;display:block">Lý thuyết (nội dung bài) và câu hỏi quiz là <b>2 phần riêng</b>. HS chỉ thấy quiz khi GV thêm ở đây.<br/>Dùng <code>___</code> trong câu hỏi để hỗ trợ trò chơi Điền & Nối.</span></div>`; return; }
+  const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   container.innerHTML = data.map((q, i) => `
     <div style="background:var(--card);border:1.5px solid var(--border);border-radius:12px;padding:1rem 1.25rem;box-shadow:var(--shadow)">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem">
         <div style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:.9rem;color:var(--text);margin-bottom:.6rem"><span style="color:var(--muted);margin-right:.4rem">${i+1}.</span>${q.question}</div>
+          <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.45rem">
+            <span style="font-weight:700;font-size:.9rem;color:var(--text)"><span style="color:var(--muted);margin-right:.4rem">${i+1}.</span>${esc(q.question)}</span>
+            ${(q.question||'').includes('_') ? '<span style="font-size:.65rem;background:#ecfdf5;color:#047857;padding:.1rem .4rem;border-radius:6px;font-weight:700">✏️🔗</span>' : ''}
+          </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:.35rem;font-size:.82rem">
             ${['A','B','C','D'].map(opt => `
               <div style="padding:.35rem .65rem;border-radius:8px;background:${q.answer===opt?'#d1fae5':'var(--bg)'};color:${q.answer===opt?'#065f46':'var(--text)'};font-weight:${q.answer===opt?'700':'400'}">
-                <b>${opt}.</b> ${q['option_'+opt.toLowerCase()]}${q.answer===opt?' ✅':''}
+                <b>${opt}.</b> ${esc(q['option_'+opt.toLowerCase()])}${q.answer===opt?' ✅':''}
               </div>`).join('')}
           </div>
-          ${q.explanation ? `<div style="font-size:.78rem;color:var(--muted);margin-top:.5rem;font-style:italic">💡 ${q.explanation}</div>` : ''}
+          ${q.explanation ? `<div style="font-size:.78rem;color:var(--muted);margin-top:.5rem;font-style:italic">💡 ${esc(q.explanation)}</div>` : ''}
         </div>
-        <div style="display:flex;flex-direction:column;gap:.3rem;flex-shrink:0">
-          <button onclick="openEditGrammarQModal(${JSON.stringify(q).replace(/"/g,'&quot;')})" style="background:none;border:1.5px solid var(--border);border-radius:6px;padding:.3rem .55rem;cursor:pointer;font-size:.8rem;color:var(--text)">✏️</button>
-          <button onclick="deleteGrammarQuestion(${q.id})" style="background:#fee2e2;border:none;border-radius:6px;padding:.3rem .55rem;cursor:pointer;font-size:.8rem;color:#dc2626">🗑</button>
+        <div style="display:flex;flex-direction:column;gap:.35rem;flex-shrink:0">
+          <button type="button" onclick="openEditGrammarQModal(${q.id})" title="Sửa câu hỏi"
+            style="background:var(--primary-light);border:1.5px solid var(--primary);border-radius:8px;padding:.35rem .65rem;cursor:pointer;font-size:.78rem;font-weight:700;color:var(--primary);white-space:nowrap">✏️ Sửa</button>
+          <button type="button" onclick="deleteGrammarQuestion(${q.id})" title="Xóa câu hỏi"
+            style="background:#fee2e2;border:none;border-radius:8px;padding:.35rem .65rem;cursor:pointer;font-size:.78rem;font-weight:700;color:#dc2626">🗑 Xóa</button>
         </div>
       </div>
     </div>`).join('');
@@ -7126,7 +7173,9 @@ function openAddGrammarQModal() {
   document.getElementById('grammarQModal').classList.add('open');
 }
 
-function openEditGrammarQModal(q) {
+function openEditGrammarQModal(id) {
+  const q = _admGrammarQuestions.find(x => x.id == id);
+  if (!q) { showToast('Không tìm thấy câu hỏi', false); return; }
   document.getElementById('grammarQModalTitle').textContent = '✏️ Sửa câu hỏi';
   document.getElementById('gqEditId').value      = q.id;
   document.getElementById('gqQuestion').value   = q.question || '';
@@ -7150,18 +7199,32 @@ async function saveGrammarQuestion() {
   const answer = document.getElementById('gqAnswer').value;
   const explanation = document.getElementById('gqExplanation').value.trim();
   const errEl = document.getElementById('gqErr');
+  if (!_currentGrammarLessonId) {
+    errEl.textContent = 'Không xác định được bài ngữ pháp. Bấm ← Quay lại rồi mở lại bài.';
+    return;
+  }
   if (!question||!optA||!optB||!optC||!optD) { errEl.textContent = 'Vui lòng điền đầy đủ câu hỏi và 4 đáp án.'; return; }
-  const payload = { lesson_id: _currentGrammarLessonId, question, option_a: optA, option_b: optB, option_c: optC, option_d: optD, answer, explanation: explanation || null };
+  const payload = { lesson_id: Number(_currentGrammarLessonId), question, option_a: optA, option_b: optB, option_c: optC, option_d: optD, answer, explanation: explanation || null };
   let error;
-  if (editId) {
-    ({ error } = await db.from('grammar_questions').update(payload).eq('id', editId));
-  } else {
-    ({ error } = await db.from('grammar_questions').insert(payload));
+  try {
+    if (editId) {
+      ({ error } = await db.from('grammar_questions').update(payload).eq('id', editId));
+    } else {
+      ({ error } = await db.from('grammar_questions').insert(payload));
+    }
+  } catch (e) {
+    errEl.textContent = e.message || 'Lỗi không xác định';
+    return;
   }
   if (error) { errEl.textContent = error.message; return; }
   document.getElementById('grammarQModal').classList.remove('open');
-  showToast(editId ? 'Đã cập nhật câu hỏi' : 'Đã thêm câu hỏi');
-  renderGrammarQuestions();
+  showToast(editId ? `Đã cập nhật câu hỏi (${_currentGrammarLessonTitle})` : `Đã thêm câu hỏi vào "${_currentGrammarLessonTitle}"`);
+  try {
+    await renderGrammarQuestions();
+  } catch (e) {
+    console.error('[saveGrammarQuestion]', e);
+    showToast('Đã lưu nhưng không tải lại danh sách. Tải lại trang nếu cần.', false);
+  }
 }
 
 async function deleteGrammarQuestion(id) {
@@ -7450,4 +7513,102 @@ function filterGuide(q) {
         </div>
       </div>`;
   }).join('');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// XEM TRƯỚC TRÒ CHƠI (đồng bộ với học sinh — learning-games.js)
+// ══════════════════════════════════════════════════════════════════
+
+let _admGrammarTheoryOpen = false;
+
+function admSetGrammarTheoryOpen(open) {
+  _admGrammarTheoryOpen = open;
+  const wrap = document.getElementById('grammarLessonPreviewWrap');
+  const tag = document.getElementById('admGrammarTheoryTag');
+  const icon = document.getElementById('admGrammarTheoryTagIcon');
+  if (wrap) wrap.style.display = open ? 'block' : 'none';
+  if (tag) tag.classList.toggle('open', open);
+  if (icon) icon.textContent = open ? '▼' : '▶';
+}
+
+function admToggleGrammarTheory() {
+  admSetGrammarTheoryOpen(!_admGrammarTheoryOpen);
+}
+
+function admVocabSetMode(mode, btn) {
+  document.querySelectorAll('#vocabWordsPanel .adm-mode-tab').forEach(t => t.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const manage = document.getElementById('vocabManageWrap');
+  const preview = document.getElementById('admVocabPreviewWrap');
+  const actions = document.getElementById('admVocabManageActions');
+  if (manage) manage.style.display = mode === 'manage' ? 'block' : 'none';
+  if (preview) preview.style.display = mode === 'preview' ? 'block' : 'none';
+  if (actions) actions.style.display = mode === 'manage' ? 'flex' : 'none';
+  if (mode === 'preview') admSwitchVocabGame('flashcard', document.querySelector('.adm-vocab-game-tab[data-game="flashcard"]'));
+}
+
+function admSwitchVocabGame(game, btn) {
+  document.querySelectorAll('.adm-vocab-game-tab').forEach(t => t.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const area = document.getElementById('admVocabGameArea');
+  if (!area || typeof LearningGames === 'undefined') return;
+  LearningGames.setCtx({
+    getVocabWords: () => _admVocabWords,
+    areaId: 'admVocabGameArea',
+    accent: 'primary',
+    _area: area
+  });
+  if (game === 'flashcard') LearningGames.vocab.flashcard(area);
+  else if (game === 'fillin') LearningGames.vocab.fillIn(area);
+  else if (game === 'match') LearningGames.vocab.match(area);
+  else if (game === 'quiz') LearningGames.vocab.vocabQuiz(area);
+}
+
+function admGrammarSetMode(mode, btn) {
+  document.querySelectorAll('#grammarQPanel .adm-mode-tab').forEach(t => t.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const manage = document.getElementById('grammarManageWrap');
+  const preview = document.getElementById('admGrammarPreviewWrap');
+  const actions = document.getElementById('admGrammarManageActions');
+  const theoryTag = document.getElementById('admGrammarTheoryTag');
+  if (manage) manage.style.display = mode === 'manage' ? 'block' : 'none';
+  if (preview) preview.style.display = mode === 'preview' ? 'block' : 'none';
+  if (actions) actions.style.display = mode === 'manage' ? 'block' : 'none';
+  if (theoryTag) theoryTag.style.display = mode === 'manage' ? 'inline-flex' : 'none';
+  if (mode === 'manage') admSetGrammarTheoryOpen(false);
+  if (mode === 'preview') admSwitchGrammarGame('quizinfo', document.querySelector('.adm-grammar-game-tab[data-game="quizinfo"]'));
+}
+
+function admSwitchGrammarGame(game, btn) {
+  document.querySelectorAll('.adm-grammar-game-tab').forEach(t => t.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const area = document.getElementById('admGrammarGameArea');
+  if (!area || typeof LearningGames === 'undefined') return;
+  LearningGames.setCtx({
+    getGrammarQuestions: () => _admGrammarQuestions,
+    areaId: 'admGrammarGameArea',
+    accent: 'green',
+    _area: area
+  });
+  if (game === 'quizinfo') {
+    if (!_admGrammarQuestions.length) {
+      area.innerHTML = '<p style="color:var(--muted);padding:2rem;text-align:center">Chưa có câu hỏi quiz. Thêm câu hỏi ở tab Quản lý.</p>';
+      return;
+    }
+    area.innerHTML = `
+      <div style="background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:1.25rem;max-width:640px;margin:0 auto">
+        <div style="font-weight:800;font-size:.95rem;margin-bottom:.75rem;color:var(--text)">❓ Trắc nghiệm — ${_admGrammarQuestions.length} câu</div>
+        <p style="font-size:.84rem;color:var(--muted);margin-bottom:1rem">Học sinh làm hết ${_admGrammarQuestions.length} câu A/B/C/D rồi nộp bài. Chuyển tab để thử Điền / Nối.</p>
+        ${_admGrammarQuestions.slice(0, 5).map((q, i) => `
+          <div style="border:1px solid var(--border);border-radius:10px;padding:.75rem;margin-bottom:.5rem;font-size:.85rem">
+            <b>${i + 1}.</b> ${q.question}
+            <div style="margin-top:.35rem;color:var(--muted);font-size:.8rem">✅ ${q.answer}. ${q['option_' + (q.answer || 'a').toLowerCase()]}</div>
+          </div>`).join('')}
+        ${_admGrammarQuestions.length > 5 ? `<div style="font-size:.78rem;color:var(--muted);text-align:center">… và ${_admGrammarQuestions.length - 5} câu nữa</div>` : ''}
+      </div>`;
+  } else if (game === 'fillin') {
+    LearningGames.grammar.fillIn(area);
+  } else if (game === 'match') {
+    LearningGames.grammar.match(area);
+  }
 }

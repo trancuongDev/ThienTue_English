@@ -630,6 +630,15 @@ ALTER PUBLICATION supabase_realtime ADD TABLE homework_submissions;
 ALTER PUBLICATION supabase_realtime ADD TABLE app_settings;
 
 -- ================================================================
+-- THÊM CỘT SCREENSHOT_VIOLATIONS (chạy lần đầu nếu chưa có)
+-- ================================================================
+ALTER TABLE exam_progress
+  ADD COLUMN IF NOT EXISTS screenshot_violations int DEFAULT 0;
+
+ALTER TABLE homework_submissions
+  ADD COLUMN IF NOT EXISTS screenshot_violations int DEFAULT 0;
+
+-- ================================================================
 -- INDEX — Tăng tốc truy vấn
 -- ================================================================
 CREATE INDEX IF NOT EXISTS idx_homework_class         ON homework(class_name);
