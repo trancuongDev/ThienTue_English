@@ -370,6 +370,22 @@ body.exam-content-hidden #_examHideOverlay { display:flex; }
 #_examHideOverlay .eh-title { color:#fff;font-size:1.4rem;font-weight:900; }
 #_examHideOverlay .eh-sub { color:#94a3b8;font-size:.9rem;line-height:1.7;max-width:420px; }
 
+/* Watermark email khi làm bài */
+#_examWatermark {
+  display:none;position:absolute;inset:0;z-index:40;
+  pointer-events:none;overflow:hidden;border-radius:inherit;
+}
+body.exam-secure-mode #modalDoHW.open #_examWatermark { display:block; }
+#_examWatermark .ewm-grid {
+  position:absolute;inset:-40%;width:180%;height:180%;
+  display:flex;flex-wrap:wrap;align-content:flex-start;gap:2.2rem 2.8rem;
+  transform:rotate(-22deg);opacity:.14;
+}
+#_examWatermark .ewm-tile {
+  font-size:clamp(.72rem,2.8vw,.9rem);font-weight:800;color:#475569;
+  white-space:nowrap;user-select:none;letter-spacing:.02em;
+}
+
 /* ═══ CUSTOM CONFIRM POPUP ═══ */
 #customConfirmOverlay {
   display:none;position:fixed;inset:0;z-index:99999;
@@ -5432,7 +5448,12 @@ async function openDoHW(hwId) {
 
           <div style="display:flex;align-items:flex-start;gap:.65rem;padding:.65rem .85rem;background:#fef2f2;border-radius:10px;border-left:3px solid #7f1d1d">
             <span style="font-size:1.1rem;flex-shrink:0;margin-top:.05rem">📸</span>
-            <div style="font-size:.86rem;color:#7f1d1d;line-height:1.6"><b>Nghiêm cấm chụp màn hình</b> (PrintScreen, Snipping Tool…) trong khi làm bài.<br/>Phát hiện → <b>tự động nộp bài và báo cáo giáo viên</b> ngay lập tức.</div>
+            <div style="font-size:.86rem;color:#7f1d1d;line-height:1.6"><b>Nghiêm cấm chụp màn hình</b> trên điện thoại &amp; máy tính.<br/>Quá <b>3 lần</b> → <b>đăng xuất tài khoản</b> + báo GV.</div>
+          </div>
+
+          <div style="display:flex;align-items:flex-start;gap:.65rem;padding:.65rem .85rem;background:#eef2ff;border-radius:10px;border-left:3px solid #6366f1">
+            <span style="font-size:1.1rem;flex-shrink:0;margin-top:.05rem">🔒</span>
+            <div style="font-size:.86rem;color:#3730a3;line-height:1.6">Đề sẽ <b>tự ẩn</b> khi chuyển app. Email của bạn được <b>watermark</b> trên toàn bộ đề.</div>
           </div>
 
           <div style="display:flex;align-items:flex-start;gap:.65rem;padding:.65rem .85rem;background:#fff7ed;border-radius:10px;border-left:3px solid #f59e0b">
@@ -5470,7 +5491,7 @@ async function openDoHW(hwId) {
 
   if (!confirmed) return; // Học sinh bấm "Quay lại"
   _tabSwitchCount = 0; // reset vi phạm cho lần làm mới
-  _screenshotCount = 0; // reset vi phạm chụp màn hình
+  _loadScreenshotCountFromStore(); // giữ số lần chụp màn hình theo bài + tài khoản
 
   document.getElementById('doHWQuestions').innerHTML = buildQDisplay(doHWQList, doHWAnswers, false);
   document.getElementById('modalDoHW').classList.add('open');
@@ -7277,6 +7298,22 @@ let _clipMonitorTimer = null;
 let _clipBaselineSig = null;
 let _origGetDisplayMedia = null;
 
+function _ssViolStoreKey() {
+  return `hw_ss_${doHWId}_${currentUser?.username || ''}`;
+}
+function _loadScreenshotCountFromStore() {
+  if (!doHWId || !currentUser?.username) { _screenshotCount = 0; return; }
+  _screenshotCount = parseInt(sessionStorage.getItem(_ssViolStoreKey()) || '0', 10) || 0;
+}
+function _saveScreenshotCountToStore() {
+  if (!doHWId || !currentUser?.username) return;
+  sessionStorage.setItem(_ssViolStoreKey(), String(_screenshotCount));
+}
+function _clearScreenshotCountStore() {
+  if (!doHWId || !currentUser?.username) return;
+  sessionStorage.removeItem(_ssViolStoreKey());
+}
+
 async function _readClipboardSig() {
   try {
     if (!navigator.clipboard?.read) return null;
@@ -7292,8 +7329,41 @@ function _ensureExamHideOverlay() {
   ov.innerHTML = `
     <div style="font-size:3rem">🔒</div>
     <div class="eh-title">Nội dung đã được ẩn</div>
-    <div class="eh-sub">Quay lại tab làm bài để tiếp tục.<br/>Mọi hành vi vi phạm đều được ghi nhận.</div>`;
+    <div class="eh-sub">Quay lại app làm bài để tiếp tục.<br/>Rời app / chụp màn hình đều được ghi nhận.</div>`;
   document.body.appendChild(ov);
+}
+
+function _ensureExamWatermark() {
+  const modal = document.getElementById('modalDoHW');
+  if (!modal) return;
+  _removeExamWatermark();
+  const email = (currentUser?.username || '').includes('@')
+    ? currentUser.username
+    : (currentUser?.full_name || currentUser?.username || 'HOC SINH');
+  const wm = document.createElement('div');
+  wm.id = '_examWatermark';
+  wm.setAttribute('aria-hidden', 'true');
+  const tiles = Array.from({ length: 28 }, () => `<span class="ewm-tile">${email}</span>`).join('');
+  wm.innerHTML = `<div class="ewm-grid">${tiles}</div>`;
+  const box = modal.querySelector('.hw-modal') || modal;
+  if (getComputedStyle(box).position === 'static') box.style.position = 'relative';
+  box.appendChild(wm);
+}
+
+function _removeExamWatermark() {
+  document.getElementById('_examWatermark')?.remove();
+}
+
+function _examHideContentNow() {
+  if (!_isDoHWOpen()) return;
+  document.body.classList.add('exam-content-hidden');
+}
+
+function _examShowContentIfSafe() {
+  if (!_isDoHWOpen()) return;
+  if (document.hidden) return;
+  if (document.getElementById('_screenshotWarnOverlay')) return;
+  document.body.classList.remove('exam-content-hidden');
 }
 
 async function _reportHWViolationToAdmin(type, detail) {
@@ -7333,6 +7403,50 @@ async function _syncExamProgressNow(screenshotCount) {
 }
 
 // Hàm xử lý khi phát hiện chụp màn hình
+const MAX_SS_LOGOUT = 3;
+
+async function _forceScreenshotLogout(method) {
+  document.getElementById('_screenshotWarnOverlay')?.remove();
+  const overlay = document.createElement('div');
+  overlay.id = '_screenshotWarnOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999999;background:rgba(69,10,10,.98);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.25rem;text-align:center;padding:2rem';
+  overlay.innerHTML = `
+    <div style="font-size:4rem">🚪</div>
+    <div style="color:#fff;font-size:1.55rem;font-weight:900">ĐĂNG XUẤT TÀI KHOẢN</div>
+    <div style="color:#fecaca;font-size:1rem;font-weight:600;line-height:1.8;max-width:520px">
+      Bạn đã <b style="color:#fff">chụp màn hình quá ${MAX_SS_LOGOUT} lần</b> trong khi làm bài.<br/>
+      Hệ thống đã <b style="color:#fff">tự nộp bài</b>, <b style="color:#fff">báo giáo viên</b> và <b style="color:#fff">đăng xuất</b> tài khoản.
+    </div>
+    <div id="_ssLogoutCd" style="color:#fef3c7;font-size:1.1rem;font-weight:800">Chuyển về trang đăng nhập sau 4...</div>`;
+  document.body.appendChild(overlay);
+
+  try { await submitAnswers(true); } catch (e) { console.warn('[screenshot logout submit]', e); }
+  _stopExamSecurity();
+  _stopExamProgressTracking();
+  _stopLiveBanner();
+
+  await _reportHWViolationToAdmin(`🚪 Đăng xuất — chụp màn hình quá ${MAX_SS_LOGOUT} lần`, method);
+
+  try {
+    if (currentUser?.username) {
+      await sb.from('students').update({ session_token: null }).eq('username', currentUser.username);
+    }
+  } catch (e) { console.warn('[screenshot logout session]', e); }
+
+  let cnt = 4;
+  const cdEl = document.getElementById('_ssLogoutCd');
+  const timer = setInterval(() => {
+    cnt--;
+    if (cdEl) cdEl.textContent = `Chuyển về trang đăng nhập sau ${cnt}...`;
+    if (cnt <= 0) {
+      clearInterval(timer);
+      _clearScreenshotCountStore();
+      sessionStorage.clear();
+      location.href = 'login.html';
+    }
+  }, 1000);
+}
+
 async function _handleScreenshotDetected(method) {
   if (!_isDoHWOpen()) return;
   if (_ssLock) return;
@@ -7342,10 +7456,17 @@ async function _handleScreenshotDetected(method) {
   _screenshotCount++;
 
   // Upsert ngay — admin tab Live + realtime mới bắt được
+  _saveScreenshotCountToStore();
   await _syncExamProgressNow(_screenshotCount);
 
   // Báo admin qua bảng alerts
   await _reportHWViolationToAdmin(`📸 Chụp màn hình lần ${_screenshotCount}`, method);
+
+  // Quá 3 lần → nộp bài + đăng xuất
+  if (_screenshotCount > MAX_SS_LOGOUT) {
+    await _forceScreenshotLogout(method);
+    return;
+  }
 
   // Xóa clipboard nếu có ảnh
   try { await navigator.clipboard?.writeText(''); } catch(e) {}
@@ -7353,6 +7474,7 @@ async function _handleScreenshotDetected(method) {
   // Xóa overlay cũ nếu còn
   document.getElementById('_screenshotWarnOverlay')?.remove();
 
+  const remaining = MAX_SS_LOGOUT - _screenshotCount;
   const overlay = document.createElement('div');
   overlay.id = '_screenshotWarnOverlay';
   overlay.style.cssText = 'position:fixed;inset:0;z-index:9999999;background:rgba(127,29,29,.97);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.5rem;text-align:center;padding:2rem';
@@ -7361,11 +7483,12 @@ async function _handleScreenshotDetected(method) {
     <div style="color:#fff;font-size:1.6rem;font-weight:900">PHÁT HIỆN CHỤP MÀN HÌNH</div>
     <div style="color:#fecaca;font-size:1rem;font-weight:600;line-height:1.8;max-width:520px">
       Hành vi <b style="color:#fff">chụp màn hình đề thi</b> đã bị phát hiện và ghi lại.<br/>
-      <span style="color:#fef3c7">Vi phạm lần thứ <b style="color:#fff;font-size:1.2rem">${_screenshotCount}</b> — Đã <b style="color:#fff">báo cáo giáo viên</b>.</span>
+      <span style="color:#fef3c7">Vi phạm lần thứ <b style="color:#fff;font-size:1.2rem">${_screenshotCount}/${MAX_SS_LOGOUT}</b> — Đã <b style="color:#fff">báo cáo giáo viên</b>.</span>
     </div>
     <div style="color:#fef3c7;font-size:.88rem;line-height:1.7;max-width:460px;background:rgba(0,0,0,.25);border-radius:12px;padding:.85rem 1.2rem">
       ❌ Nghiêm cấm chụp, quay màn hình hoặc sao chép đề thi dưới mọi hình thức.<br/>
-      Bài làm sẽ bị <b style="color:#fff">tự động nộp và đánh dấu vi phạm</b> nghiêm trọng.
+      Bài làm sẽ <b style="color:#fff">tự động nộp</b>.<br/>
+      ${remaining > 0 ? `⚠️ Còn <b style="color:#fff">${remaining}</b> lần nữa sẽ bị <b style="color:#fff">đăng xuất tài khoản</b>.` : ''}
     </div>
     <div id="_ssCountdown" style="color:#fff;font-size:1.25rem;font-weight:900">Tự nộp bài sau 5...</div>
   `;
@@ -7401,6 +7524,7 @@ function _isScreenshotKey(e) {
 function _startExamSecurity() {
   _stopExamSecurity();
   _ensureExamHideOverlay();
+  _ensureExamWatermark();
   document.body.classList.add('exam-secure-mode');
   document.body.classList.remove('exam-content-hidden');
 
@@ -7451,16 +7575,18 @@ function _startExamSecurity() {
   };
   const onVis = () => {
     if (!_isDoHWOpen()) return;
-    document.body.classList.toggle('exam-content-hidden', document.hidden);
+    if (document.hidden) _examHideContentNow();
+    else _examShowContentIfSafe();
   };
   const onBlur = () => {
     if (!_isDoHWOpen()) return;
-    if (!/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
-      document.body.classList.add('exam-content-hidden');
-    }
+    _examHideContentNow();
   };
   const onFocus = () => {
-    document.body.classList.remove('exam-content-hidden');
+    _examShowContentIfSafe();
+  };
+  const onPageHide = () => {
+    _examHideContentNow();
   };
   const onBeforePrint = e => {
     if (!_isDoHWOpen()) return;
@@ -7478,6 +7604,7 @@ function _startExamSecurity() {
   document.addEventListener('visibilitychange', onVis);
   window.addEventListener('blur', onBlur);
   window.addEventListener('focus', onFocus);
+  window.addEventListener('pagehide', onPageHide);
   window.addEventListener('beforeprint', onBeforePrint);
 
   // Chặn quay màn hình
@@ -7508,11 +7635,12 @@ function _startExamSecurity() {
     } catch(e) {}
   }, 3000);
 
-  _examSecHandlers = { onCtx, onCopy, onSelect, onPaste, onKeyDown, onKeyUp, onVis, onBlur, onFocus, onBeforePrint };
+  _examSecHandlers = { onCtx, onCopy, onSelect, onPaste, onKeyDown, onKeyUp, onVis, onBlur, onFocus, onPageHide, onBeforePrint };
 }
 
 function _stopExamSecurity() {
   document.body.classList.remove('exam-secure-mode', 'exam-content-hidden');
+  _removeExamWatermark();
   if (_clipMonitorTimer) { clearInterval(_clipMonitorTimer); _clipMonitorTimer = null; }
   if (_origGetDisplayMedia && navigator.mediaDevices) {
     navigator.mediaDevices.getDisplayMedia = _origGetDisplayMedia;
@@ -7530,6 +7658,7 @@ function _stopExamSecurity() {
   document.removeEventListener('visibilitychange', h.onVis);
   window.removeEventListener('blur', h.onBlur);
   window.removeEventListener('focus', h.onFocus);
+  window.removeEventListener('pagehide', h.onPageHide);
   window.removeEventListener('beforeprint', h.onBeforePrint);
   _examSecHandlers = null;
 }
@@ -7629,6 +7758,7 @@ document.addEventListener('visibilitychange', function() {
 
   if (document.hidden) {
     _lastVisibilityTime = Date.now();
+    _examHideContentNow();
     // Nếu 30s không quay lại → coi như đóng tab → tự nộp bài
     _exitTimer = setTimeout(() => {
       if (_isDoHWOpen() && document.hidden) {
@@ -7640,9 +7770,26 @@ document.addEventListener('visibilitychange', function() {
     // Quay lại tab → hủy timer auto-submit
     if (_exitTimer) { clearTimeout(_exitTimer); _exitTimer = null; }
 
-    if (_lastVisibilityTime === 0) return;
-    const awaySeconds = Math.round((Date.now() - _lastVisibilityTime) / 1000);
+    if (_lastVisibilityTime === 0) {
+      _examShowContentIfSafe();
+      return;
+    }
+    const awayMs = Date.now() - _lastVisibilityTime;
+    const awaySeconds = Math.round(awayMs / 1000);
     _lastVisibilityTime = 0;
+
+    // Rời app < 3 giây (thường là chụp màn hình trên điện thoại)
+    if (awayMs >= 350 && awayMs < 3000) {
+      _handleScreenshotDetected('mobile-quick-leave');
+      return;
+    }
+    // Glitch quá ngắn — bỏ qua, hiện lại đề
+    if (awayMs < 350) {
+      _examShowContentIfSafe();
+      return;
+    }
+
+    _examShowContentIfSafe();
     _tabSwitchCount++;
 
     const MAX_TAB_SWITCH = 3;
