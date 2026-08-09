@@ -300,7 +300,36 @@ function _applyTeacherClassFilter(query, colName = 'class_name') {
 }
 
 // ---- Helpers ----
-function fmtDate(d) { if (!d) return ''; const [y,m,day]=(d||'').split('-'); return `${day}/${m}/${y}`; }
+function toIsoDateOnly(d) {
+  if (!d) return '';
+  const s = String(d).trim();
+  const m = s.match(/^(\d{1,4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const dt = new Date(s);
+  if (isNaN(dt)) return '';
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+function normalizeClassDate(iso) {
+  if (!iso) return null;
+  const m = String(iso).match(/^(\d{1,4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  let y = parseInt(m[1], 10);
+  if (y < 100) y += 2000;
+  if (y < 2000 || y > 2099) return null;
+  return `${y}-${m[2]}-${m[3]}`;
+}
+function parseLocalDate(d) {
+  const iso = normalizeClassDate(toIsoDateOnly(d));
+  if (!iso) return null;
+  const [y, mo, day] = iso.split('-').map(Number);
+  return new Date(y, mo - 1, day);
+}
+function fmtDate(d) {
+  const iso = normalizeClassDate(toIsoDateOnly(d));
+  if (!iso) return '';
+  const [y, m, day] = iso.split('-');
+  return `${day}/${m}/${y}`;
+}
 function fmtTime(ts) { return new Date(ts).toLocaleString('vi-VN'); }
 
 // ---- Ghi log biến động tài khoản vào bảng alerts ----
@@ -1142,7 +1171,8 @@ async function renderOverview() {
   const notices = [];
   (allCls||[]).forEach(c => {
     if (!c.end_date) return;
-    const end = new Date(c.end_date); end.setHours(0,0,0,0);
+    const end = parseLocalDate(c.end_date);
+    if (!end) return;
     const days = Math.round((end - today) / 86400000);
     if (days < 0) {
       notices.push(`<div style="background:#fee2e2;border-left:4px solid #ef4444;padding:.75rem 1rem;border-radius:8px;margin-bottom:.5rem;font-size:.88rem">🔴 Lớp <b>${c.name}</b> đã kết thúc vào ngày <b>${fmtDate(c.end_date)}</b>. Học sinh lớp này đã bị khóa tự động.</div>`);
@@ -1768,7 +1798,7 @@ async function renderStudents() {
   });
 
   const today = new Date(); today.setHours(0,0,0,0);
-  const expiredClasses = new Set((allClasses||[]).filter(c => c.end_date && new Date(c.end_date) < today).map(c => c.name));
+  const expiredClasses = new Set((allClasses||[]).filter(c => c.end_date && parseLocalDate(c.end_date) && parseLocalDate(c.end_date) < today).map(c => c.name));
   const expired = (list||[]).filter(s => s.active && !s.manually_unlocked && (
     (s.expiry_date && new Date(s.expiry_date) < today) ||
     (s.class_name && expiredClasses.has(s.class_name))
@@ -3112,6 +3142,17 @@ async function renderClasses() {
   if (_gvClasses) allNames = allNames.filter(c => _gvClasses.includes(c));
 
   const { data:clsData }=await db.from('classes').select('name,start_date,end_date,teacher_username');
+  for (const c of (clsData||[])) {
+    const fixedStart = normalizeClassDate(toIsoDateOnly(c.start_date));
+    const fixedEnd = normalizeClassDate(toIsoDateOnly(c.end_date));
+    const patch = {};
+    if (c.start_date && fixedStart && fixedStart !== toIsoDateOnly(c.start_date)) patch.start_date = fixedStart;
+    if (c.end_date && fixedEnd && fixedEnd !== toIsoDateOnly(c.end_date)) patch.end_date = fixedEnd;
+    if (Object.keys(patch).length) {
+      await db.from('classes').update(patch).eq('name', c.name);
+      Object.assign(c, patch);
+    }
+  }
   const clsMap=Object.fromEntries((clsData||[]).map(c=>[c.name,c]));
   // Load danh sách GV để map username → full_name
   const { data: gvAll } = await db.from('teachers').select('username,full_name');
@@ -3146,13 +3187,14 @@ async function renderClasses() {
     const activeCount = allInClass.filter(s=>s.active).length;
     const onlineCount = allInClass.filter(s=>s.is_online && s.last_seen && (Date.now()-new Date(s.last_seen).getTime())<90000).length;
     const info = clsMap[cls]||{};
-    const isExpired = info.end_date && new Date(info.end_date) < today;
+    const endDt = info.end_date ? parseLocalDate(info.end_date) : null;
+    const isExpired = endDt && endDt < today;
     const color = isExpired ? '#94a3b8' : colors[idx % colors.length];
 
     // Tính số ngày còn lại
     let daysLabel = '';
-    if (info.end_date) {
-      const daysLeft = Math.round((new Date(info.end_date) - today) / 86400000);
+    if (endDt) {
+      const daysLeft = Math.round((endDt - today) / 86400000);
       if (isExpired) daysLabel = `<span style="background:#fee2e2;color:#991b1b;font-size:.7rem;font-weight:700;padding:.2rem .55rem;border-radius:6px">Đã kết thúc</span>`;
       else if (daysLeft <= 7) daysLabel = `<span style="background:#fef3c7;color:#92400e;font-size:.7rem;font-weight:700;padding:.2rem .55rem;border-radius:6px">Còn ${daysLeft} ngày</span>`;
       else daysLabel = `<span style="background:#d1fae5;color:#065f46;font-size:.7rem;font-weight:700;padding:.2rem .55rem;border-radius:6px">Còn ${daysLeft} ngày</span>`;
@@ -3507,8 +3549,8 @@ function openDeleteClassModal(cls, allIds, studentCount) {
 function openEditClassModal(cls, clsData={}) {
   editingClassName=cls;
   document.getElementById('editClassName').value=cls;
-  document.getElementById('editClassStart').value=clsData.start_date||'';
-  document.getElementById('editClassEnd').value=clsData.end_date||'';
+  document.getElementById('editClassStart').value=normalizeClassDate(toIsoDateOnly(clsData.start_date))||'';
+  document.getElementById('editClassEnd').value=normalizeClassDate(toIsoDateOnly(clsData.end_date))||'';
   document.getElementById('editClassError').textContent='';
   document.getElementById('editClassModal').classList.add('open');
 }
@@ -3516,9 +3558,12 @@ document.getElementById('editClassCancelBtn')?.addEventListener('click',()=>docu
 document.getElementById('editClassSaveBtn')?.addEventListener('click', async ()=>{
   const newName=document.getElementById('editClassName').value.trim(), err=document.getElementById('editClassError');
   if (!newName) { err.textContent='Vui lòng nhập tên lớp.'; return; }
-  const start=document.getElementById('editClassStart').value||null;
-  const end=document.getElementById('editClassEnd').value||null;
+  const start=normalizeClassDate(document.getElementById('editClassStart').value)||null;
+  const end=normalizeClassDate(document.getElementById('editClassEnd').value)||null;
   const nameChanged = newName.toLowerCase() !== editingClassName.toLowerCase() || newName !== editingClassName;
+  if (document.getElementById('editClassStart').value && !start) { err.textContent='Ngày khai giảng không hợp lệ (năm 2000–2099).'; return; }
+  if (document.getElementById('editClassEnd').value && !end) { err.textContent='Ngày kết thúc không hợp lệ (năm 2000–2099).'; return; }
+  if (start && end && end < start) { err.textContent='Ngày kết thúc phải sau ngày khai giảng.'; return; }
 
   if (!nameChanged) {
     // Chỉ cập nhật ngày
@@ -3573,9 +3618,12 @@ document.getElementById('addClassCancelBtn')?.addEventListener('click',()=>docum
 document.getElementById('addClassSaveBtn')?.addEventListener('click', async ()=>{
   const name=document.getElementById('addClassName').value.trim(), err=document.getElementById('addClassError');
   if (!name) { err.textContent='Vui lòng nhập tên lớp.'; return; }
-  const start=document.getElementById('addClassStart').value||null;
-  const end=document.getElementById('addClassEnd').value||null;
+  const start=normalizeClassDate(document.getElementById('addClassStart').value)||null;
+  const end=normalizeClassDate(document.getElementById('addClassEnd').value)||null;
   const teacherUsername=document.getElementById('addClassTeacher')?.value||null;
+  if (document.getElementById('addClassStart').value && !start) { err.textContent='Ngày khai giảng không hợp lệ (năm 2000–2099).'; return; }
+  if (document.getElementById('addClassEnd').value && !end) { err.textContent='Ngày kết thúc không hợp lệ (năm 2000–2099).'; return; }
+  if (start && end && end < start) { err.textContent='Ngày kết thúc phải sau ngày khai giảng.'; return; }
 
   // Tạo lớp
   const { error }=await db.from('classes').insert({name, start_date:start, end_date:end, teacher_username:teacherUsername||null});
@@ -3733,8 +3781,8 @@ async function autoLockExpiredAccounts() {
 
   const expiredClassSet = new Set(classes.filter(c => {
     if (!c.end_date) return false;
-    const end = new Date(c.end_date); end.setHours(0,0,0,0);
-    return today > end;
+    const end = parseLocalDate(c.end_date);
+    return end && today > end;
   }).map(c => c.name));
 
   if (!expiredClassSet.size) return;

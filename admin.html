@@ -1439,9 +1439,9 @@
       <label>Tên lớp</label>
       <input type="text" id="addClassName" placeholder="VD: Lớp 9A..."/>
       <label>Ngày khai giảng <span class="muted">(tuỳ chọn)</span></label>
-      <input type="date" id="addClassStart"/>
+      <input type="date" id="addClassStart" min="2020-01-01" max="2099-12-31"/>
       <label>Ngày kết thúc <span class="muted">(tuỳ chọn)</span></label>
-      <input type="date" id="addClassEnd"/>
+      <input type="date" id="addClassEnd" min="2020-01-01" max="2099-12-31"/>
       <label>Gán giáo viên <span class="muted">(tuỳ chọn)</span></label>
       <select id="addClassTeacher" style="padding:.65rem .9rem;border:1.5px solid var(--border);border-radius:10px;outline:none;background:var(--card);color:var(--text)">
         <option value="">-- Không gán --</option>
@@ -1461,9 +1461,9 @@
       <label>Tên lớp</label>
       <input type="text" id="editClassName" placeholder="Tên lớp..."/>
       <label>Ngày khai giảng <span class="muted">(tuỳ chọn)</span></label>
-      <input type="date" id="editClassStart"/>
+      <input type="date" id="editClassStart" min="2020-01-01" max="2099-12-31"/>
       <label>Ngày kết thúc <span class="muted">(tuỳ chọn)</span></label>
-      <input type="date" id="editClassEnd"/>
+      <input type="date" id="editClassEnd" min="2020-01-01" max="2099-12-31"/>
       <div id="editClassError" class="error-msg"></div>
       <div class="modal-actions">
         <button id="editClassCancelBtn" class="btn-outline">Hủy</button>
@@ -1843,7 +1843,7 @@
   </div>
 
   <script src="learning-games.js?v=2"></script>
-  <script src="admin.js?v=1.6"></script>
+  <script src="admin.js?v=1.6.1"></script>
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(() => {});
