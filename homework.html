@@ -669,7 +669,10 @@ body.exam-secure-mode #modalDoHW.open #_examWatermark { display:block; }
 
     <!-- Header sticky -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:.85rem 1.5rem;border-bottom:1.5px solid var(--border);flex-shrink:0;background:var(--card);gap:.75rem">
-      <h2 id="modalHWTitle" style="margin:0">➕ Giao bài tập mới</h2>
+      <div style="min-width:0;flex:1">
+        <h2 id="modalHWTitle" style="margin:0">➕ Giao bài tập mới</h2>
+        <div id="hwDraftBadge" style="font-size:.72rem;font-weight:600;color:var(--muted);margin-top:.2rem;min-height:1em"></div>
+      </div>
       <button class="btn-outline" onclick="closeModalHW()">✕ Đóng</button>
     </div>
     <input type="hidden" id="hwEditId"/>
@@ -1106,6 +1109,312 @@ let adminTab     = 'list';
 // Editor state
 let editorQuestions = [];   // câu hỏi đang soạn
 let qCounter = 0;           // ID tạm cho câu hỏi mới
+const HW_EDITOR_DRAFT_KEY = 'hw_editor_draft_v1';
+const HW_Q_BACKUP_PREFIX = 'hw_q_backup_v1_';
+let _hwDraftTimer = null;
+let _hwDraftInterval = null;
+let _hwDraftRestoring = false;
+// Chỉ xóa câu hỏi khi GV bấm ✕ từng câu — không bao giờ xóa vì "thiếu trong form"
+let _hwRemovedDbIds = new Set();
+
+function _hwBackupKey(hwId) {
+  return HW_Q_BACKUP_PREFIX + String(hwId);
+}
+
+function saveQuestionsServerBackup(hwId, questions, meta = {}) {
+  if (!hwId || !questions?.length) return;
+  const payload = {
+    v: 1,
+    hwId: Number(hwId),
+    savedAt: Date.now(),
+    title: meta.title || document.getElementById('hwTitle')?.value || '',
+    questions: questions.map((q, i) => ({
+      id: q.id || q.dbId || null,
+      order_index: q.order_index != null ? q.order_index : i,
+      question_type: q.question_type || q.type,
+      question_text: q.question_text || q.text || '',
+      image_url: (q.image_url && String(q.image_url).startsWith('data:')) ? '' : (q.image_url || null),
+      data: q.data || {},
+      points: q.points || 1
+    }))
+  };
+  try {
+    localStorage.setItem(_hwBackupKey(hwId), JSON.stringify(payload));
+  } catch (e) {
+    try {
+      payload.questions = payload.questions.map(q => ({ ...q, image_url: null }));
+      localStorage.setItem(_hwBackupKey(hwId), JSON.stringify(payload));
+    } catch (e2) {
+      console.warn('[HW backup] localStorage đầy', e2);
+    }
+  }
+}
+
+function loadQuestionsServerBackup(hwId) {
+  try {
+    const raw = localStorage.getItem(_hwBackupKey(hwId));
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (!d?.questions?.length) return null;
+    return d;
+  } catch (e) { return null; }
+}
+
+async function _hwOfferRestoreFromBackup(hwId, serverQs) {
+  const bak = loadQuestionsServerBackup(hwId);
+  if (!bak?.questions?.length) return serverQs || [];
+  const serverCount = (serverQs || []).length;
+  if (bak.questions.length <= serverCount) return serverQs || [];
+  const when = bak.savedAt ? new Date(bak.savedAt).toLocaleString('vi-VN') : '';
+  const ok = await showConfirm({
+    icon: '🛡️',
+    title: 'Phát hiện bản sao đề đầy đủ hơn',
+    msg: `Server: ${serverCount} câu · Bản sao máy: ${bak.questions.length} câu\nLưu lúc: ${when}\n\nKhôi phục đủ đề từ bản sao trên máy này?`,
+    okText: '🛡️ Khôi phục đủ đề',
+    okColor: '#059669',
+    cancelText: 'Giữ bản trên server',
+    iconBg: '#d1fae5',
+    accent: 'linear-gradient(90deg,#10b981,#059669)'
+  });
+  if (!ok) return serverQs || [];
+  // Merge: ưu tiên câu server (có id), bổ sung câu backup còn thiếu theo nội dung/thứ tự
+  const byId = new Map((serverQs || []).map(q => [Number(q.id), q]));
+  const merged = [];
+  bak.questions.forEach((bq, i) => {
+    const id = bq.id != null ? Number(bq.id) : null;
+    if (id && byId.has(id)) {
+      merged.push(byId.get(id));
+      byId.delete(id);
+    } else {
+      merged.push({
+        id: null,
+        order_index: i,
+        question_type: bq.question_type,
+        question_text: bq.question_text,
+        image_url: bq.image_url || '',
+        data: bq.data || {},
+        points: bq.points || 1
+      });
+    }
+  });
+  // Thêm câu server còn lại (nếu có)
+  byId.forEach(q => merged.push(q));
+  showToast(`🛡️ Đã ghép ${merged.length} câu từ bản sao phòng hộ`);
+  return merged;
+}
+
+// ── Autosave nháp soạn đề (tránh mất câu hỏi khi để lâu / reload) ──
+function _hwIsEditorOpen() {
+  return !!document.getElementById('modalHW')?.classList.contains('open');
+}
+
+function _hwCollectEditorDraft() {
+  return {
+    v: 1,
+    savedAt: Date.now(),
+    editId: document.getElementById('hwEditId')?.value || '',
+    title: document.getElementById('hwTitle')?.value || '',
+    desc: document.getElementById('hwDesc')?.value || '',
+    gradingNotes: document.getElementById('hwGradingNotes')?.value || '',
+    className: document.getElementById('hwClass')?.value || '',
+    allowedUsernames: document.getElementById('hwAllowedUsernames')?.value || '',
+    due: document.getElementById('hwDue')?.value || '',
+    timeLimit: document.getElementById('hwTimeLimit')?.value || '',
+    totalScore: document.getElementById('hwTotalScore')?.value || '',
+    openAt: document.getElementById('hwOpenAt')?.value || '',
+    allowDownload: !!document.getElementById('hwAllowDownload')?.checked,
+    shuffleQ: !!document.getElementById('hwShuffleQ')?.checked,
+    shuffleA: !!document.getElementById('hwShuffleA')?.checked,
+    antiPaste: !!document.getElementById('hwAntiPaste')?.checked,
+    maxAttempts: _getMaxAttempts(),
+    qCounter,
+    questions: editorQuestions
+  };
+}
+
+function _hwStripHeavyImages(draft) {
+  const strip = (url) => (typeof url === 'string' && url.startsWith('data:')) ? '' : url;
+  const qs = (draft.questions || []).map(q => {
+    const copy = { ...q, image_url: strip(q.image_url || '') };
+    if (copy.data && Array.isArray(copy.data.options)) {
+      copy.data = {
+        ...copy.data,
+        options: copy.data.options.map(o => {
+          if (typeof o === 'string') return o;
+          return { ...o, img: strip(o.img || '') };
+        })
+      };
+    }
+    if (copy.data && Array.isArray(copy.data.statements)) {
+      copy.data = {
+        ...copy.data,
+        statements: copy.data.statements.map(s => ({ ...s, img: strip(s.img || '') }))
+      };
+    }
+    return copy;
+  });
+  return { ...draft, questions: qs, imagesStripped: true };
+}
+
+function _hwUpdateDraftBadge(msg, ok = true) {
+  const el = document.getElementById('hwDraftBadge');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.style.color = ok ? 'var(--muted)' : '#b45309';
+}
+
+function saveEditorDraft(force = false) {
+  if (_hwDraftRestoring) return;
+  if (!_hwIsEditorOpen() && !force) return;
+  const hasContent = editorQuestions.length > 0 || !!(document.getElementById('hwTitle')?.value || '').trim();
+  if (!hasContent) return;
+  let draft = _hwCollectEditorDraft();
+  try {
+    localStorage.setItem(HW_EDITOR_DRAFT_KEY, JSON.stringify(draft));
+    const t = new Date(draft.savedAt);
+    _hwUpdateDraftBadge(`💾 Đã tự lưu ${t.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`);
+  } catch (e) {
+    try {
+      draft = _hwStripHeavyImages(draft);
+      localStorage.setItem(HW_EDITOR_DRAFT_KEY, JSON.stringify(draft));
+      _hwUpdateDraftBadge('💾 Đã tự lưu (ảnh Base64 lớn bị bỏ — nhớ tải lại ảnh)', false);
+    } catch (e2) {
+      _hwUpdateDraftBadge('⚠️ Không lưu được nháp (bộ nhớ trình duyệt đầy)', false);
+    }
+  }
+}
+
+function scheduleEditorDraftSave() {
+  if (_hwDraftRestoring) return;
+  clearTimeout(_hwDraftTimer);
+  _hwDraftTimer = setTimeout(() => saveEditorDraft(), 800);
+}
+
+function clearEditorDraft() {
+  try { localStorage.removeItem(HW_EDITOR_DRAFT_KEY); } catch (e) {}
+  _hwUpdateDraftBadge('');
+}
+
+function loadEditorDraftRaw() {
+  try {
+    const raw = localStorage.getItem(HW_EDITOR_DRAFT_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (!d || !Array.isArray(d.questions)) return null;
+    return d;
+  } catch (e) { return null; }
+}
+
+function _hwApplyAttempts(ma) {
+  if (ma === 0) document.getElementById('att_many').checked = true;
+  else if (!ma || ma === 1) document.getElementById('att_once').checked = true;
+  else {
+    document.getElementById('att_custom').checked = true;
+    document.getElementById('hwMaxAttempts').value = ma;
+  }
+  onAttemptsChange();
+}
+
+function restoreEditorDraft(draft) {
+  if (!draft) return;
+  _hwDraftRestoring = true;
+  try {
+    document.getElementById('hwEditId').value = draft.editId || '';
+    document.getElementById('hwTitle').value = draft.title || '';
+    document.getElementById('hwDesc').value = draft.desc || '';
+    document.getElementById('hwGradingNotes').value = draft.gradingNotes || '';
+    document.getElementById('hwDue').value = draft.due || '';
+    document.getElementById('hwTimeLimit').value = draft.timeLimit || '';
+    document.getElementById('hwTotalScore').value = draft.totalScore || '';
+    document.getElementById('hwOpenAt').value = draft.openAt || '';
+    document.getElementById('hwAllowDownload').checked = !!draft.allowDownload;
+    document.getElementById('hwShuffleQ').checked = !!draft.shuffleQ;
+    document.getElementById('hwShuffleA').checked = !!draft.shuffleA;
+    document.getElementById('hwAntiPaste').checked = !!draft.antiPaste;
+    _hwApplyAttempts(draft.maxAttempts);
+    _setHwClassSelect(draft.className || '');
+    _setHwStudentSelect(draft.allowedUsernames || '');
+    qCounter = Math.max(Number(draft.qCounter) || 0, ...(draft.questions || []).map(q => Number(q._id) || 0), 0);
+    editorQuestions = (draft.questions || []).map(q => ({
+      _id: q._id || (++qCounter),
+      dbId: q.dbId || null,
+      type: q.type,
+      text: q.text || '',
+      image_url: q.image_url || '',
+      data: q.data || {},
+      points: q.points || 1
+    }));
+    document.getElementById('modalHWTitle').textContent = draft.editId ? '✏️ Sửa bài tập (khôi phục nháp)' : '➕ Giao bài tập mới (khôi phục nháp)';
+    document.getElementById('hwFormErr').textContent = '';
+    renderQuestionList();
+    updateScorePreview();
+    document.getElementById('modalHW').classList.add('open');
+    setTimeout(() => renderLatexAll(document.getElementById('modalHW')), 300);
+    const when = draft.savedAt ? new Date(draft.savedAt).toLocaleString('vi-VN') : '';
+    showToast(draft.imagesStripped
+      ? `♻️ Đã khôi phục nháp (${when}) — một số ảnh lớn cần tải lại`
+      : `♻️ Đã khôi phục nháp lúc ${when}`);
+    _hwUpdateDraftBadge(when ? `💾 Nháp từ ${when}` : '💾 Đã khôi phục nháp');
+  } finally {
+    _hwDraftRestoring = false;
+  }
+}
+
+function startEditorDraftAutosave() {
+  stopEditorDraftAutosave();
+  _hwDraftInterval = setInterval(() => {
+    if (_hwIsEditorOpen()) saveEditorDraft();
+  }, 15000);
+}
+
+function stopEditorDraftAutosave() {
+  if (_hwDraftInterval) { clearInterval(_hwDraftInterval); _hwDraftInterval = null; }
+  clearTimeout(_hwDraftTimer);
+}
+
+async function maybeRestoreEditorDraft(preferredEditId) {
+  const draft = loadEditorDraftRaw();
+  if (!draft) return false;
+  if (!draft.questions?.length && !(draft.title || '').trim()) return false;
+  // Chỉ khôi phục khi cùng ngữ cảnh (tạo mới hoặc cùng bài đang sửa)
+  const draftEdit = String(draft.editId || '');
+  const wantEdit = preferredEditId == null ? null : String(preferredEditId || '');
+  if (wantEdit !== null && draftEdit !== wantEdit) return false;
+  const ageMin = Math.max(1, Math.round((Date.now() - (draft.savedAt || 0)) / 60000));
+  const qCount = (draft.questions || []).filter(q => q.type !== 'section').length;
+
+  // Nếu đang sửa bài có sẵn — so sánh số câu trên server để tránh khôi phục nháp thiếu → mất nửa đề
+  let serverHint = '';
+  if (draftEdit) {
+    try {
+      const { count } = await sb.from('homework_questions')
+        .select('*', { count: 'exact', head: true })
+        .eq('homework_id', Number(draftEdit));
+      if (count != null && count > (draft.questions || []).length) {
+        serverHint = `\n\n⚠ Server đang có ${count} câu, nháp chỉ có ${(draft.questions || []).length} câu.\nKhôi phục nháp rồi bấm Lưu có thể XÓA bớt câu trên server!`;
+      }
+    } catch (e) {}
+  }
+
+  const ok = await showConfirm({
+    icon: '♻️',
+    title: 'Khôi phục bản nháp?',
+    msg: `Có bản soạn dở (~${ageMin} phút trước):\n«${draft.title || 'Chưa có tiêu đề'}» — ${qCount} câu hỏi.${serverHint}\n\nKhôi phục để không bị mất đề?`,
+    okText: serverHint ? 'Vẫn khôi phục nháp' : '♻️ Khôi phục',
+    okColor: serverHint ? '#ef4444' : '#6366f1',
+    cancelText: serverHint ? 'Không — mở bản trên server' : 'Bỏ nháp',
+    iconBg: serverHint ? '#fee2e2' : '#eef2ff',
+    accent: serverHint ? 'linear-gradient(90deg,#ef4444,#dc2626)' : 'linear-gradient(90deg,#6366f1,#4f46e5)'
+  });
+  if (!ok) {
+    // Nếu đang sửa bài và từ chối nháp thiếu → giữ nháp hoặc xóa tùy context
+    if (!serverHint) clearEditorDraft();
+    return false;
+  }
+  restoreEditorDraft(draft);
+  startEditorDraftAutosave();
+  return true;
+}
 
 // Làm bài state
 let doHWId       = null;
@@ -1127,6 +1436,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   initSidebar();
   initDarkMode();
   // Toggle hiển thị vùng upload file đề — không cần nữa (dùng exportHW)
+  // Autosave khi gõ tiêu đề / mô tả / các field form soạn đề
+  const modalHW = document.getElementById('modalHW');
+  if (modalHW) {
+    modalHW.addEventListener('input', (e) => {
+      if (e.target?.closest?.('#questionList')) return; // câu hỏi đã có hook riêng
+      scheduleEditorDraftSave();
+    });
+    modalHW.addEventListener('change', () => scheduleEditorDraftSave());
+  }
   await loadUser();
   if (!currentUser) {
     // Hiển thị thông báo thay vì redirect im lặng
@@ -1158,6 +1476,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderAdminList();
     // Cập nhật badge thùng rác
     _updateTrashBadge();
+
+    // Nếu còn nháp soạn đề trên máy → nhắc khôi phục
+    setTimeout(async () => {
+      const draft = loadEditorDraftRaw();
+      if (!draft) return;
+      if (!draft.questions?.length && !(draft.title || '').trim()) return;
+      if (_hwIsEditorOpen()) return;
+      const qCount = (draft.questions || []).filter(q => q.type !== 'section').length;
+      const when = draft.savedAt ? new Date(draft.savedAt).toLocaleString('vi-VN') : '';
+      const ok = await showConfirm({
+        icon: '♻️',
+        title: 'Phát hiện bản nháp chưa lưu',
+        msg: `«${draft.title || 'Chưa có tiêu đề'}» — ${qCount} câu hỏi\nLưu lúc: ${when}\n\nKhôi phục để tiếp tục soạn đề?`,
+        okText: '♻️ Khôi phục ngay',
+        okColor: '#6366f1',
+        cancelText: 'Để sau',
+        iconBg: '#eef2ff',
+        accent: 'linear-gradient(90deg,#6366f1,#4f46e5)'
+      });
+      if (ok) {
+        restoreEditorDraft(draft);
+        startEditorDraftAutosave();
+      }
+    }, 600);
 
     // ── Realtime đã xử lý cập nhật tức thì ──
     // Polling backup 30s (phòng khi realtime mất kết nối tạm thời)
@@ -1670,16 +2012,52 @@ async function loadStudentData() {
   }
 }
 
-async function loadQuestions(hwId) {
-  if (allQuestions[hwId]) return allQuestions[hwId];
-  const { data } = await sb.from('homework_questions').select('*').eq('homework_id',hwId).order('order_index');
-  allQuestions[hwId] = data || [];
-  return allQuestions[hwId];
+async function loadQuestions(hwId, opts = {}) {
+  const force = !!opts.force;
+  const key = String(hwId);
+  if (!force && Array.isArray(allQuestions[key])) return allQuestions[key];
+
+  // Tải phân trang — tránh mất nửa đề khi response quá lớn / bị cắt
+  const pageSize = 100;
+  let from = 0;
+  let all = [];
+  for (;;) {
+    const { data, error } = await sb.from('homework_questions')
+      .select('*')
+      .eq('homework_id', hwId)
+      .order('order_index', { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) {
+      console.error('[loadQuestions]', hwId, error);
+      // Không ghi đè cache cũ bằng [] khi lỗi mạng — tránh soạn/lưu mất đề
+      if (Array.isArray(allQuestions[key]) && allQuestions[key].length) return allQuestions[key];
+      return [];
+    }
+    const batch = data || [];
+    all = all.concat(batch);
+    if (batch.length < pageSize) break;
+    from += pageSize;
+    // Giới hạn an toàn
+    if (from > 5000) break;
+  }
+
+  allQuestions[key] = all;
+  const n = Number(hwId);
+  if (!Number.isNaN(n)) allQuestions[n] = all;
+  return all;
+}
+
+function clearQuestionsCache(hwId) {
+  if (hwId == null) return;
+  delete allQuestions[String(hwId)];
+  delete allQuestions[hwId];
+  const n = Number(hwId);
+  if (!Number.isNaN(n)) delete allQuestions[n];
 }
 
 // Tính breakdown điểm từ cache (sync)
 function calcScoreBreakdown(sub) {
-  const qs = allQuestions[sub.homework_id];
+  const qs = allQuestions[String(sub.homework_id)] || allQuestions[sub.homework_id];
   if (!qs || !qs.length) return null;
   const answers = sub.answers || {};
   const result = { mc:{got:0,max:0}, tf:{got:0,max:0}, mt:{got:0,max:0}, sa:{got:0,max:0} };
@@ -3849,7 +4227,10 @@ function renderStudentList() {
 // ═══════════════════════════════════════════
 // MODAL: TẠO / SỬA BÀI TẬP — QUESTION EDITOR
 // ═══════════════════════════════════════════
-function openModalHW() {
+async function openModalHW() {
+  // Ưu tiên khôi phục nháp tạo mới nếu còn
+  if (await maybeRestoreEditorDraft('')) return;
+
   editorQuestions=[];
   qCounter=0;
   document.getElementById('hwEditId').value='';
@@ -3865,6 +4246,8 @@ function openModalHW() {
   document.getElementById('hwTotalScore').value = '';
   document.getElementById('hwScorePreview').textContent = '';
   document.getElementById('hwFormErr').textContent='';
+  document.getElementById('modalHWTitle').textContent='➕ Giao bài tập mới';
+  _hwUpdateDraftBadge('');
   // Reset allow_download, shuffle, anti-paste, open_at
   document.getElementById('hwAllowDownload').checked = false;
   document.getElementById('hwShuffleQ').checked = false;
@@ -3884,11 +4267,15 @@ function openModalHW() {
   _resetHwStudentSelect();
   renderQuestionList();
   document.getElementById('modalHW').classList.add('open');
+  startEditorDraftAutosave();
 }
 
 async function openEditHW(hwId) {
   const hw=allHomework.find(h=>h.id===hwId);
   if(!hw)return;
+  // Nếu còn nháp đúng bài này → hỏi khôi phục
+  if (await maybeRestoreEditorDraft(String(hwId))) return;
+
   document.getElementById('hwEditId').value=hwId;
   document.getElementById('hwTitle').value=hw.title||'';
   document.getElementById('hwDesc').value=hw.description||'';
@@ -3914,8 +4301,14 @@ async function openEditHW(hwId) {
   _setHwStudentSelect(hw.allowed_usernames || '');
   window._hwAttachExistingUrl = null;
   document.getElementById('modalHWTitle').textContent='✏️ Sửa bài tập';
-  // Load questions
-  const qs = await loadQuestions(hwId);
+  _hwUpdateDraftBadge('');
+  qCounter = 0;
+  // Load questions — luôn force reload từ DB (không dùng cache cũ)
+  clearQuestionsCache(hwId);
+  const qs = await loadQuestions(hwId, { force: true });
+  if (!qs.length) {
+    showToast('⚠️ Không tải được câu hỏi từ server — kiểm tra mạng rồi mở lại', false);
+  }
   editorQuestions = qs.map(q=>({
     _id: ++qCounter,
     dbId: q.id,
@@ -3927,22 +4320,25 @@ async function openEditHW(hwId) {
   }));
   renderQuestionList();
   document.getElementById('modalHW').classList.add('open');
+  startEditorDraftAutosave();
   setTimeout(() => renderLatexAll(document.getElementById('modalHW')), 300);
 }
 
 async function closeModalHW(force=false) {
   // Nếu đang có câu hỏi → hỏi xác nhận (trừ khi force=true, ví dụ sau khi lưu)
-  if (!force && editorQuestions.length > 0) {
+  if (!force && (editorQuestions.length > 0 || (document.getElementById('hwTitle')?.value || '').trim())) {
+    saveEditorDraft(true); // giữ nháp trước khi hỏi
     const ok = await showConfirm({
       icon: '📝',
-      title: 'Chưa lưu bài tập',
-      msg: 'Bạn có câu hỏi chưa lưu.\nThoát ra sẽ MẤT toàn bộ nội dung đã soạn.',
-      okText: 'Thoát không lưu',
-      okColor: '#ef4444',
+      title: 'Chưa lưu lên hệ thống',
+      msg: 'Nội dung đã được tự lưu nháp trên máy này.\nBạn có thể mở lại để tiếp tục soạn.\n\nThoát khỏi form?',
+      okText: 'Thoát (giữ nháp)',
+      okColor: '#6366f1',
       cancelText: 'Ở lại'
     });
     if (!ok) return;
   }
+  stopEditorDraftAutosave();
   document.getElementById('modalHW').classList.remove('open');
 }
 
@@ -4064,6 +4460,7 @@ function addQuestion(type) {
   editorQuestions.push({ _id:++qCounter, type, text:'', image_url:'', data:JSON.parse(JSON.stringify(defaultData[type])), points:1 });
   renderQuestionList();
   updateScorePreview();
+  scheduleEditorDraftSave();
   setTimeout(() => {
     const bar = document.getElementById('addQBar');
     const newCard = bar?.previousElementSibling;
@@ -4083,6 +4480,7 @@ function addQuestion(type) {
 function addSection() {
   editorQuestions.push({ _id:++qCounter, type:'section', text:'', image_url:'', data:{}, points:0 });
   renderQuestionList();
+  scheduleEditorDraftSave();
   setTimeout(() => {
     const bar = document.getElementById('addQBar');
     const newCard = bar?.previousElementSibling;
@@ -4102,6 +4500,7 @@ function removeQuestion(_id) {
   editorQuestions=editorQuestions.filter(q=>q._id!==_id);
   renderQuestionList();
   updateScorePreview();
+  scheduleEditorDraftSave();
 }
 </script>
 
@@ -4369,6 +4768,7 @@ function mcUpdateOpt(_id, i, field, val) {
   } else {
     q.data.options[i] = {...o, [field]: val};
   }
+  scheduleEditorDraftSave();
 }
 
 async function mcUploadOptImg(_id, i, input) {
@@ -4475,8 +4875,8 @@ function buildTFEditor(q) {
     </div>
     <button class="btn-sm" style="margin-top:.4rem" onclick="tfAddStmt(${q._id})">+ Thêm mệnh đề</button>`;
 }
-function tfUpdateText(_id,i,val){const q=editorQuestions.find(x=>x._id===_id);if(q&&q.data.statements[i])q.data.statements[i].text=val;}
-function tfSetAnswer(_id,i,val){const q=editorQuestions.find(x=>x._id===_id);if(q&&q.data.statements[i])q.data.statements[i].answer=val;}
+function tfUpdateText(_id,i,val){const q=editorQuestions.find(x=>x._id===_id);if(q&&q.data.statements[i])q.data.statements[i].text=val;scheduleEditorDraftSave();}
+function tfSetAnswer(_id,i,val){const q=editorQuestions.find(x=>x._id===_id);if(q&&q.data.statements[i])q.data.statements[i].answer=val;scheduleEditorDraftSave();}
 async function tfUploadImg(_id,i,input) {
   const file=input.files[0]; if(!file)return;
   if(file.size>5*1024*1024){showToast('Ảnh tối đa 5MB',false);return;}
@@ -4586,15 +4986,18 @@ function matchSetCorrect(_id, i, rightIdx) {
   // Xóa pair cũ của i rồi thêm pair mới
   q.data.correct_pairs = q.data.correct_pairs.filter(p=>p[0]!==i);
   if (rightIdx >= 0) q.data.correct_pairs.push([i, rightIdx]);
+  scheduleEditorDraftSave();
 }
 
 function matchUpdateLeft(_id,i,val) {
   const q=editorQuestions.find(x=>x._id===_id);
   if(q){ if(!q.data.left)q.data.left=[]; q.data.left[i]=val; }
+  scheduleEditorDraftSave();
 }
 function matchUpdateRight(_id,i,val) {
   const q=editorQuestions.find(x=>x._id===_id);
   if(q){ if(!q.data.right)q.data.right=[]; q.data.right[i]=val; }
+  scheduleEditorDraftSave();
 }
 
 function matchAddLeft(_id) {
@@ -4861,15 +5264,18 @@ function _normNumber(s) {
 function updateQField(_id,field,val) {
   const q=editorQuestions.find(x=>x._id===_id);
   if(q)q[field]=val;
+  scheduleEditorDraftSave();
 }
 function updateSAAnswer(_id, val) {
   const q = editorQuestions.find(x=>x._id===_id);
   if (q) q.data = { ...q.data, sample_answer: val };
+  scheduleEditorDraftSave();
 }
 function updateQText(_id, val) {
   const q = editorQuestions.find(x=>x._id===_id);
   if (!q) return;
   q.text = val;
+  scheduleEditorDraftSave();
   const prev = document.getElementById('qpreview_'+_id);
   if (!prev) return;
   prev.classList.toggle('empty', !val);
@@ -4886,6 +5292,7 @@ function updateQExplanation(_id, val) {
   const q = editorQuestions.find(x=>x._id===_id);
   if (!q) return;
   q.data = { ...q.data, explanation: val };
+  scheduleEditorDraftSave();
   const prev = document.getElementById('qexplpreview_'+_id);
   if (!prev) return;
   prev.classList.toggle('empty', !val);
@@ -5003,8 +5410,9 @@ async function saveHomework(isDraft=false) {
   };
   // Merge vào payload chính (Supabase sẽ báo lỗi nếu cột chưa có → hiện gợi ý)
   Object.assign(payload, extPayload);
-  const editId=document.getElementById('hwEditId').value;
-  let hwId=editId?parseInt(editId):null;
+  const wasNew = !document.getElementById('hwEditId').value;
+  let editId = document.getElementById('hwEditId').value;
+  let hwId = editId ? parseInt(editId) : null;
 
   // Helper: nếu lỗi "column not found" thì retry không có cột mới
   async function _saveHwWithFallback(op) {
@@ -5030,71 +5438,158 @@ async function saveHomework(isDraft=false) {
   } else {
     const res = await _saveHwWithFallback(p => sb.from('homework').insert(p).select().single());
     if(res.error && !res.error.message?.includes('column')){document.getElementById('hwFormErr').textContent='Lỗi: '+res.error.message;return;}
-    if(res.data) hwId=res.data.id;
+    if(res.data) {
+      hwId=res.data.id;
+      // Chuyển sang chế độ sửa ngay — nếu lưu câu hỏi lỗi vẫn còn bài + có thể thử lại
+      document.getElementById('hwEditId').value = String(hwId);
+      editId = String(hwId); // dùng cho nhánh lưu câu hỏi bên dưới
+    }
   }
 
-  // Lưu câu hỏi — upsert thông minh để giữ ID cũ (bảo vệ answers của học sinh)
-  if (editId) {
-    // Lấy ID các câu hiện có trong DB
-    const existingIds = new Set(
-      editorQuestions.filter(q => q.dbId).map(q => Number(q.dbId))
-    );
-    // Xóa câu đã bị GV xóa khỏi editor (không còn trong danh sách)
-    const { data: oldQs } = await sb.from('homework_questions')
-      .select('id').eq('homework_id', hwId);
-    const toDelete = (oldQs||[]).map(q=>q.id).filter(id => !existingIds.has(Number(id)));
-    if (toDelete.length) {
-      await sb.from('homework_questions').delete().in('id', toDelete);
+  if (!hwId) {
+    document.getElementById('hwFormErr').textContent = 'Lỗi: không lấy được ID bài tập sau khi lưu.';
+    saveEditorDraft(true);
+    return;
+  }
+
+  // ── Chuẩn hóa payload câu hỏi (chặn Base64 quá lớn làm lỗi nửa đề) ──
+  function _prepareQRow(q, i) {
+    let image_url = q.image_url || null;
+    let data = q.data;
+    let warned = false;
+    if (typeof image_url === 'string' && image_url.startsWith('data:') && image_url.length > 80000) {
+      image_url = null;
+      warned = true;
     }
-    // Update câu cũ + insert câu mới
-    for (let i = 0; i < editorQuestions.length; i++) {
-      const q = editorQuestions[i];
-      const row = {
+    try {
+      data = JSON.parse(JSON.stringify(q.data || {}));
+      if (Array.isArray(data.options)) {
+        data.options = data.options.map(o => {
+          if (o && typeof o === 'object' && typeof o.img === 'string' && o.img.startsWith('data:') && o.img.length > 80000) {
+            warned = true;
+            return { ...o, img: '' };
+          }
+          return o;
+        });
+      }
+      if (Array.isArray(data.statements)) {
+        data.statements = data.statements.map(s => {
+          if (s && typeof s.img === 'string' && s.img.startsWith('data:') && s.img.length > 80000) {
+            warned = true;
+            return { ...s, img: '' };
+          }
+          return s;
+        });
+      }
+    } catch (e) {
+      data = q.data || {};
+    }
+    return {
+      row: {
         homework_id:   hwId,
         order_index:   i,
         question_type: q.type,
         question_text: q.text,
-        image_url:     q.image_url || null,
-        data:          q.data,
+        image_url,
+        data,
         points:        q.points || 1
-      };
+      },
+      warned
+    };
+  }
+
+  // Lưu câu hỏi: UPSERT TRƯỚC → chỉ xóa câu thừa SAU KHI ghi thành công
+  // (Trước đây xóa trước rồi mới ghi → nếu tải thiếu câu / lỗi giữa chừng = mất nửa đề)
+  {
+    const { data: oldQs, error: oldErr } = await sb.from('homework_questions')
+      .select('id').eq('homework_id', hwId);
+    if (oldErr) {
+      document.getElementById('hwFormErr').textContent = 'Lỗi đọc câu hỏi cũ: ' + oldErr.message;
+      saveEditorDraft(true);
+      return;
+    }
+    const oldIds = (oldQs || []).map(q => Number(q.id));
+    const editorDbIds = new Set(
+      editorQuestions.filter(q => q.dbId).map(q => Number(q.dbId))
+    );
+    const toDelete = oldIds.filter(id => !editorDbIds.has(id));
+
+    // Cảnh báo nếu sắp xóa nhiều câu (thường do load thiếu / khôi phục nháp thiếu)
+    if (toDelete.length > 0 && oldIds.length > editorQuestions.length) {
+      const ok = await showConfirm({
+        icon: '⚠️',
+        title: 'Sắp xóa bớt câu hỏi trên server?',
+        msg: `Trên server đang có ${oldIds.length} câu, form hiện chỉ còn ${editorQuestions.length} câu.\nSẽ XÓA ${toDelete.length} câu không còn trong form.\n\nChỉ bấm tiếp nếu bạn CỐ Ý xóa. Nếu nghi load thiếu đề → Hủy và mở lại bài.`,
+        okText: 'Vẫn lưu (xóa bớt)',
+        okColor: '#ef4444',
+        cancelText: 'Hủy — không lưu',
+        iconBg: '#fee2e2',
+        accent: 'linear-gradient(90deg,#ef4444,#dc2626)'
+      });
+      if (!ok) {
+        document.getElementById('hwFormErr').textContent = 'Đã hủy lưu để tránh mất câu hỏi.';
+        saveEditorDraft(true);
+        return;
+      }
+    }
+
+    let strippedImg = false;
+    // 1) Ghi tất cả câu trước
+    for (let i = 0; i < editorQuestions.length; i++) {
+      const q = editorQuestions[i];
+      const prepared = _prepareQRow(q, i);
+      if (prepared.warned) strippedImg = true;
+      const row = prepared.row;
       if (q.dbId) {
-        // Câu cũ — update, giữ nguyên ID
         const { error: uErr } = await sb.from('homework_questions')
           .update(row).eq('id', q.dbId);
-        if (uErr) { document.getElementById('hwFormErr').textContent='Lỗi cập nhật câu hỏi: '+uErr.message; return; }
+        if (uErr) {
+          document.getElementById('hwFormErr').textContent =
+            `Lỗi cập nhật câu ${i + 1}: ${uErr.message} — CHƯA xóa câu nào trên server. Nháp vẫn giữ.`;
+          saveEditorDraft(true);
+          return;
+        }
       } else {
-        // Câu mới — insert
         const { data: ins, error: iErr } = await sb.from('homework_questions')
-          .insert(row).select().single();
+          .insert(row).select('id').single();
         if (iErr) {
           console.error('Lỗi insert câu mới:', iErr, row);
-          document.getElementById('hwFormErr').textContent='Lỗi thêm câu hỏi: '+iErr.message;
+          document.getElementById('hwFormErr').textContent =
+            `Lỗi thêm câu ${i + 1}: ${iErr.message} — CHƯA xóa câu cũ. Nháp vẫn giữ, hãy thử lại.`;
+          saveEditorDraft(true);
           return;
         }
         if (ins) q.dbId = ins.id;
       }
     }
-  } else {
-    // Bài mới — insert toàn bộ
-    const qRows = editorQuestions.map((q,i) => ({
-      homework_id:   hwId,
-      order_index:   i,
-      question_type: q.type,
-      question_text: q.text,
-      image_url:     q.image_url || null,
-      data:          q.data,
-      points:        q.points || 1
-    }));
-    const { error: qErr } = await sb.from('homework_questions').insert(qRows);
-    if (qErr) { document.getElementById('hwFormErr').textContent='Lỗi lưu câu hỏi: '+qErr.message; return; }
+
+    // 2) Chỉ xóa câu thừa sau khi mọi câu đã ghi OK
+    if (toDelete.length) {
+      // Xóa theo lô nhỏ để tránh URL quá dài
+      for (let i = 0; i < toDelete.length; i += 50) {
+        const chunk = toDelete.slice(i, i + 50);
+        const { error: dErr } = await sb.from('homework_questions').delete().in('id', chunk);
+        if (dErr) {
+          document.getElementById('hwFormErr').textContent =
+            'Đã lưu câu hỏi nhưng lỗi khi dọn câu thừa: ' + dErr.message;
+          saveEditorDraft(true);
+          return;
+        }
+      }
+    }
+
+    if (strippedImg) {
+      showToast('⚠️ Một số ảnh Base64 quá lớn đã bỏ khi lưu — hãy tải ảnh lên Storage rồi lưu lại', false);
+    }
   }
 
-  // Reset cache
-  delete allQuestions[hwId];
+  // Reset cache + xóa nháp local (đã lưu thành công lên server)
+  clearQuestionsCache(hwId);
+  clearEditorDraft();
+  stopEditorDraftAutosave();
   closeModalHW(true);
   if (isDraft) showToast('📋 Đã lưu nháp — học sinh chưa thấy bài này');
-  else showToast(editId ? '✅ Đã cập nhật & giao bài' : '🚀 Đã tạo và giao bài thành công');
+  else showToast(wasNew ? '🚀 Đã tạo và giao bài thành công' : '✅ Đã cập nhật & giao bài');
   await loadAdminData();
   // Luôn switch về tab Danh sách sau khi lưu
   adminTab = 'list';
@@ -5167,7 +5662,7 @@ async function deleteHW(id) {
     .update({ deleted_at: new Date().toISOString() })
     .eq('id', id);
   if (error) { showToast('Lỗi: ' + error.message, false); return; }
-  delete allQuestions[id];
+  clearQuestionsCache(id);
   showToast('🗑 Đã chuyển vào thùng rác — có thể khôi phục trong 5 ngày');
   await loadAdminData();
   adminTab = 'list'; setSideTab('list');
@@ -5390,8 +5885,7 @@ async function openDoHW(hwId) {
   // maxAttempts === 0 → không giới hạn, tiếp tục
 
   // Luôn fetch mới nhất khi bắt đầu làm — tránh dùng cache cũ khi GV đã sửa đề
-  delete allQuestions[hwId];
-  const qs = await loadQuestions(hwId);
+  const qs = await loadQuestions(hwId, { force: true });
   if (!qs.length) { showToast('Bài tập chưa có câu hỏi', false); return; }
 
   doHWId      = hwId;
@@ -7708,6 +8202,13 @@ window.addEventListener('beforeunload', function(e) {
     e.returnValue = '';
     return '';
   }
+  // Đang soạn đề — tự lưu nháp + cảnh báo
+  if (_hwIsEditorOpen() && (editorQuestions.length > 0 || (document.getElementById('hwTitle')?.value || '').trim())) {
+    saveEditorDraft(true);
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
+  }
 });
 
 // ═══ AUTO-SUBMIT KHI TẮT TAB / TẮT TRANG ═══
@@ -7725,6 +8226,10 @@ async function _autoSubmitOnExit() {
 }
 
 window.addEventListener('pagehide', function(e) {
+  // Tự lưu nháp soạn đề khi tắt tab / chuyển trang
+  if (_hwIsEditorOpen() && (editorQuestions.length > 0 || (document.getElementById('hwTitle')?.value || '').trim())) {
+    saveEditorDraft(true);
+  }
   if (_isDoHWOpen()) {
     _autoSubmitFired = false; // reset để cho phép fire
     _autoSubmitOnExit();
@@ -8774,7 +9279,7 @@ async function permanentDeleteHW(id, title) {
   if (!ok) return;
   const { error } = await sb.from('homework').delete().eq('id', id);
   if (error) { showToast('Lỗi: ' + error.message, false); return; }
-  delete allQuestions[id];
+  clearQuestionsCache(id);
   showToast('🗑 Đã xóa vĩnh viễn');
   _updateTrashBadge();
   renderAdminTrash();

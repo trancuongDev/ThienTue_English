@@ -299,7 +299,7 @@ function showPage(pg) {
   sessionStorage.removeItem('st_lesson_id'); // reset bài khi chuyển trang
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.slink').forEach(l => l.classList.remove('active'));
-  const map = { home:'Home', lessons:'Lessons', profile:'Profile', guide:'Guide', notifications:'Notifications', vocab:'Vocab', grammar:'Grammar' };
+  const map = { home:'Home', lessons:'Lessons', profile:'Profile', guide:'Guide', notifications:'Notifications', vocab:'Vocab', grammar:'Grammar', files:'Files' };
   const el = document.getElementById('page' + (map[pg] || pg.charAt(0).toUpperCase()+pg.slice(1)));
   if (el) el.classList.add('active');
   document.querySelectorAll(`[data-page="${pg}"]`).forEach(l => l.classList.add('active'));
@@ -309,6 +309,7 @@ function showPage(pg) {
   if (pg === 'schedule')      renderStudentSchedule();
   if (pg === 'vocab')         renderStVocabSets();
   if (pg === 'grammar')       renderStGrammarLessons();
+  if (pg === 'files')         initStFileManager();
 }
 document.querySelectorAll('.slink[data-page]').forEach(l => {
   l.addEventListener('click', e => { e.preventDefault(); showPage(l.dataset.page); document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebarBackdrop').classList.remove('show'); });
@@ -2348,5 +2349,266 @@ function stSubmitGrammarQuiz() {
   document.getElementById('stGrammarSubmitBtn').style.display = 'none';
   document.getElementById('stGrammarRetryBtn').style.display  = 'inline-block';
   resEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// ============================================================
+// LƯU TRỮ TÀI LIỆU (học sinh) — xem / lọc tag / tải
+// ============================================================
+let _stFmFolders = [];
+let _stFmFiles = [];
+let _stFmCurrentFolder = null;
+let _stFmView = 'grid';
+let _stFmLoaded = false;
+
+function _stFmIcon(type) {
+  const map = { pdf:'📄', doc:'📝', image:'🖼️', video:'🎬', zip:'🗜️', xls:'📊', ppt:'📊', link:'🔗' };
+  return map[type] || '📎';
+}
+function _stFmSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
+function _stFmEsc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function _stFmVisibleToStudent(item) {
+  const cls = (item.class_name || '').trim();
+  if (!cls) return true; // tất cả học sinh
+  if (cls === 'private') return false;
+  const parts = cls.split(',').map(c => c.trim()).filter(Boolean);
+  return parts.some(c => myClasses.includes(c));
+}
+
+async function initStFileManager() {
+  await loadStFileManagerData();
+  _stPopulateTagFilter();
+  _stFmBreadcrumb();
+  stRenderFileManager();
+}
+
+async function loadStFileManagerData() {
+  const [folderRes, fileRes] = await Promise.all([
+    db.from('file_folders').select('*').order('sort_order').order('name'),
+    db.from('file_items').select('*').is('deleted_at', null)
+      .order('is_pinned', { ascending: false })
+      .order('created_at', { ascending: false })
+  ]);
+  _stFmFolders = (folderRes.data || []).filter(_stFmVisibleToStudent);
+  _stFmFiles = (fileRes.data || []).filter(_stFmVisibleToStudent);
+  _stFmLoaded = true;
+}
+
+function _stPopulateTagFilter() {
+  const allTags = new Set();
+  _stFmFiles.forEach(f => (f.tags || '').split(',').map(t => t.trim()).filter(Boolean).forEach(t => allTags.add(t)));
+  const sel = document.getElementById('stFileTagFilter');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">🏷 Tất cả tag</option>' +
+    [...allTags].sort().map(t => `<option value="${_stFmEsc(t)}">${_stFmEsc(t)}</option>`).join('');
+  if ([...allTags].includes(cur)) sel.value = cur;
+
+  const chips = document.getElementById('stFileTagChips');
+  if (!chips) return;
+  if (!allTags.size) {
+    chips.innerHTML = '';
+    return;
+  }
+  chips.innerHTML = `<span style="font-size:.75rem;font-weight:700;color:var(--muted);align-self:center">Tag:</span>` +
+    [...allTags].sort().map(t => {
+      const active = cur === t;
+      return `<button type="button" onclick="stSelectFileTag('${String(t).replace(/'/g, "\\'")}')"
+        style="border:1.5px solid ${active ? 'var(--primary)' : 'var(--border)'};background:${active ? 'var(--primary)' : 'var(--card)'};color:${active ? '#fff' : 'var(--primary)'};border-radius:999px;padding:.22rem .7rem;font-size:.75rem;font-weight:700;cursor:pointer">${_stFmEsc(t)}</button>`;
+    }).join('') +
+    (cur ? `<button type="button" onclick="stSelectFileTag('')" style="border:1.5px solid var(--border);background:var(--bg);color:var(--muted);border-radius:999px;padding:.22rem .7rem;font-size:.75rem;font-weight:700;cursor:pointer">✕ Bỏ lọc</button>` : '');
+}
+
+function stSelectFileTag(tag) {
+  const sel = document.getElementById('stFileTagFilter');
+  if (sel) sel.value = tag || '';
+  _stPopulateTagFilter();
+  stRenderFileManager();
+}
+
+function stSetFileView(v) {
+  _stFmView = v;
+  const g = document.getElementById('stFileViewGrid');
+  const l = document.getElementById('stFileViewList');
+  if (g) {
+    g.style.background = v === 'grid' ? 'var(--primary)' : 'var(--bg)';
+    g.style.color = v === 'grid' ? '#fff' : 'var(--muted)';
+  }
+  if (l) {
+    l.style.background = v === 'list' ? 'var(--primary)' : 'var(--bg)';
+    l.style.color = v === 'list' ? '#fff' : 'var(--muted)';
+  }
+  stRenderFileManager();
+}
+
+function stNavigateFolder(folderId) {
+  _stFmCurrentFolder = folderId;
+  _stFmBreadcrumb();
+  stRenderFileManager();
+}
+
+function _stFmBreadcrumb() {
+  const bc = document.getElementById('stFileBreadcrumb');
+  if (!bc) return;
+  const parts = [];
+  const buildPath = (folderId) => {
+    if (!folderId) return;
+    const f = _stFmFolders.find(x => String(x.id) === String(folderId));
+    if (!f) return;
+    buildPath(f.parent_id);
+    parts.push(f);
+  };
+  buildPath(_stFmCurrentFolder);
+  bc.innerHTML = `<span style="cursor:pointer;color:var(--primary)" onclick="stNavigateFolder(null)">🏠 Tất cả</span>` +
+    parts.map(f => ` <span style="color:var(--muted)">›</span> <span style="cursor:pointer;color:var(--primary)" onclick="stNavigateFolder(${f.id})">${f.icon || '📁'} ${_stFmEsc(f.name)}</span>`).join('');
+}
+
+function stRenderFileManager() {
+  const el = document.getElementById('stFileManagerContent');
+  if (!el) return;
+  const search = (document.getElementById('stFileSearch')?.value || '').toLowerCase().trim();
+  const tagFilter = document.getElementById('stFileTagFilter')?.value || '';
+  const sortBy = document.getElementById('stFileSortBy')?.value || 'name';
+
+  const subFolders = _stFmFolders.filter(f =>
+    !f.parent_id ? !_stFmCurrentFolder : String(f.parent_id) === String(_stFmCurrentFolder)
+  );
+
+  let files = _stFmFiles.filter(f => {
+    const inFolder = _stFmCurrentFolder
+      ? String(f.folder_id) === String(_stFmCurrentFolder)
+      : !f.folder_id;
+    if (!inFolder) return false;
+    if (search && !f.display_name.toLowerCase().includes(search) && !(f.tags || '').toLowerCase().includes(search)) return false;
+    if (tagFilter && !(f.tags || '').split(',').map(t => t.trim()).includes(tagFilter)) return false;
+    return true;
+  });
+
+  files = [...files].sort((a, b) => {
+    if (a.is_pinned && !b.is_pinned) return -1;
+    if (!a.is_pinned && b.is_pinned) return 1;
+    if (sortBy === 'name') return a.display_name.localeCompare(b.display_name);
+    if (sortBy === 'date') return new Date(b.created_at) - new Date(a.created_at);
+    if (sortBy === 'size') return (b.file_size || 0) - (a.file_size || 0);
+    if (sortBy === 'downloads') return (b.download_count || 0) - (a.download_count || 0);
+    return 0;
+  });
+
+  const statsEl = document.getElementById('stFileStatsBar');
+  if (statsEl) {
+    statsEl.innerHTML = [
+      `<span style="background:var(--primary-light);color:var(--primary);border-radius:20px;padding:.2rem .7rem;font-size:.78rem;font-weight:700">${_stFmFiles.length} file</span>`,
+      `<span style="background:#f0fdf4;color:#065f46;border-radius:20px;padding:.2rem .7rem;font-size:.78rem;font-weight:700">${_stFmFolders.length} thư mục</span>`,
+      tagFilter ? `<span style="background:#eef2ff;color:#4338ca;border-radius:20px;padding:.2rem .7rem;font-size:.78rem;font-weight:700">🏷 ${ _stFmEsc(tagFilter) }</span>` : ''
+    ].filter(Boolean).join('');
+  }
+
+  let html = '';
+  if (subFolders.length && !tagFilter && !search) {
+    html += `<div style="font-size:.78rem;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:.5rem">📁 Thư mục</div>`;
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(${_stFmView === 'grid' ? '160px' : '100%'},1fr));gap:.65rem;margin-bottom:1.25rem">`;
+    subFolders.forEach(f => {
+      const fileCount = _stFmFiles.filter(x => String(x.folder_id) === String(f.id)).length;
+      html += `<div style="background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:.85rem 1rem;cursor:pointer;transition:all .18s"
+          onclick="stNavigateFolder(${f.id})"
+          onmouseover="this.style.borderColor='${f.color || 'var(--primary)'}';this.style.boxShadow='0 4px 16px rgba(0,0,0,.08)'"
+          onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow=''">
+        <div style="font-size:1.6rem;margin-bottom:.35rem">${f.icon || '📁'}</div>
+        <div style="font-weight:800;font-size:.88rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_stFmEsc(f.name)}</div>
+        <div style="font-size:.75rem;color:var(--muted);margin-top:.2rem">${fileCount} file</div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  if (files.length) {
+    html += `<div style="font-size:.78rem;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:.5rem">📎 Tài liệu</div>`;
+    if (_stFmView === 'grid') {
+      html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:.65rem">`;
+      files.forEach(f => { html += _stRenderFileCard(f); });
+      html += '</div>';
+    } else {
+      html += `<div style="background:var(--card);border:1.5px solid var(--border);border-radius:14px;overflow:hidden">`;
+      files.forEach((f, i) => { html += _stRenderFileRow(f, i); });
+      html += '</div>';
+    }
+  }
+
+  if (!html) {
+    html = `<div class="empty-state" style="padding:2.5rem 1rem;text-align:center">
+      <div style="font-size:3rem;margin-bottom:.75rem">📭</div>
+      <p style="color:var(--muted);font-weight:600">${search || tagFilter ? 'Không tìm thấy tài liệu phù hợp.' : 'Chưa có tài liệu cho lớp của bạn.'}</p>
+    </div>`;
+  }
+  el.innerHTML = html;
+}
+
+function _stRenderFileCard(f) {
+  const tags = (f.tags || '').split(',').map(t => t.trim()).filter(Boolean);
+  const url = String(f.file_url || '').replace(/'/g, "\\'");
+  return `<div style="background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:.9rem;transition:all .18s;position:relative"
+      onmouseover="this.style.boxShadow='0 4px 20px rgba(20,184,166,.15)';this.style.borderColor='#14b8a6'"
+      onmouseout="this.style.boxShadow='';this.style.borderColor='var(--border)'">
+    ${f.is_pinned ? '<div style="position:absolute;top:.4rem;left:.5rem;font-size:.7rem">📌</div>' : ''}
+    <div style="font-size:2.2rem;margin-bottom:.5rem;text-align:center">${_stFmIcon(f.file_type)}</div>
+    <div style="font-weight:700;font-size:.83rem;text-align:center;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.4;margin-bottom:.35rem">${_stFmEsc(f.display_name)}</div>
+    <div style="text-align:center;font-size:.72rem;color:var(--muted);margin-bottom:.4rem">${_stFmSize(f.file_size)}${_stFmSize(f.file_size) && f.download_count ? ' · ' : ''}${f.download_count ? f.download_count + ' lượt tải' : ''}</div>
+    ${tags.length ? `<div style="display:flex;flex-wrap:wrap;gap:.2rem;justify-content:center;margin-bottom:.5rem">${tags.slice(0, 4).map(t =>
+      `<button type="button" onclick="event.stopPropagation();stSelectFileTag('${String(t).replace(/'/g, "\\'")}')" style="background:var(--primary-light);color:var(--primary);border:none;border-radius:20px;padding:.08rem .45rem;font-size:.65rem;font-weight:700;cursor:pointer">${_stFmEsc(t)}</button>`
+    ).join('')}</div>` : ''}
+    <button type="button" onclick="stDownloadFile(${f.id},'${url}')"
+      style="width:100%;background:var(--primary);border:none;color:#fff;border-radius:9px;padding:.4rem;font-size:.78rem;font-weight:700;cursor:pointer">⬇ Tải về</button>
+  </div>`;
+}
+
+function _stRenderFileRow(f, i) {
+  const tags = (f.tags || '').split(',').map(t => t.trim()).filter(Boolean);
+  const url = String(f.file_url || '').replace(/'/g, "\\'");
+  return `<div style="display:flex;align-items:center;gap:.85rem;padding:.65rem 1rem;${i ? 'border-top:1px solid var(--border)' : ''}">
+    <span style="font-size:1.4rem;flex-shrink:0">${_stFmIcon(f.file_type)}</span>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:700;font-size:.87rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.is_pinned ? '📌 ' : ''}${_stFmEsc(f.display_name)}</div>
+      <div style="font-size:.73rem;color:var(--muted)">${_stFmSize(f.file_size)}${_stFmSize(f.file_size) ? ' · ' : ''}${f.created_at ? new Date(f.created_at).toLocaleDateString('vi-VN') : ''}</div>
+    </div>
+    ${tags.length ? `<div style="display:flex;gap:.2rem;flex-wrap:wrap;max-width:180px">${tags.slice(0, 3).map(t =>
+      `<button type="button" onclick="stSelectFileTag('${String(t).replace(/'/g, "\\'")}')" style="background:var(--primary-light);color:var(--primary);border:none;border-radius:20px;padding:.08rem .45rem;font-size:.68rem;font-weight:700;cursor:pointer">${_stFmEsc(t)}</button>`
+    ).join('')}</div>` : ''}
+    <button type="button" onclick="stDownloadFile(${f.id},'${url}')"
+      style="background:var(--primary);border:none;color:#fff;border-radius:8px;padding:.32rem .75rem;font-size:.78rem;font-weight:700;cursor:pointer;flex-shrink:0">⬇ Tải</button>
+  </div>`;
+}
+
+async function stDownloadFile(fileId, url) {
+  const f = _stFmFiles.find(x => String(x.id) === String(fileId));
+  let openUrl = String(url || f?.file_url || '').trim();
+  const m = openUrl.match(/https?:\/\/[^\s"'<>]+/i);
+  if (m) openUrl = m[0].replace(/[.,;)]+$/, '');
+  if (!/^https?:\/\//i.test(openUrl) && !openUrl.startsWith('data:') && !openUrl.startsWith('blob:')) {
+    if (openUrl.startsWith('//')) openUrl = 'https:' + openUrl;
+    else if (/^(drive\.google\.com|docs\.google\.com|www\.|[\w.-]+\.[a-z]{2,})/i.test(openUrl)) openUrl = 'https://' + openUrl;
+  }
+  if (!openUrl || !/^https?:\/\//i.test(openUrl)) {
+    alert('Link tài liệu không hợp lệ. Báo giáo viên kiểm tra lại URL.');
+    return;
+  }
+  if (f) {
+    try {
+      await db.from('file_items').update({ download_count: (f.download_count || 0) + 1 }).eq('id', fileId);
+      await db.from('file_downloads').insert({
+        file_id: fileId,
+        username: sessionStorage.getItem('dh_user') || currentUser,
+        student_name: sessionStorage.getItem('dh_name') || currentName || ''
+      });
+      f.download_count = (f.download_count || 0) + 1;
+    } catch (e) { /* bỏ qua lỗi log */ }
+  }
+  window.open(openUrl, '_blank', 'noopener,noreferrer');
+  stRenderFileManager();
 }
 

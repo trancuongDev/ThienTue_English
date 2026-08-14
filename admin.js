@@ -6015,9 +6015,14 @@ async function doUpload() {
   // Upload link ngoài
   if (linkUrl && !_fmUploadFiles.length) {
     if (!displayName) { errEl.textContent = 'Vui lòng nhập tên hiển thị cho link.'; return; }
+    const cleanUrl = _normalizeExternalUrl(linkUrl);
+    if (!cleanUrl || !/^https?:\/\//i.test(cleanUrl)) {
+      errEl.textContent = 'Link không hợp lệ. Dán đúng URL bắt đầu bằng https:// (vd: https://drive.google.com/...)';
+      return;
+    }
     const { error } = await db.from('file_items').insert({
-      display_name: displayName, file_name: linkUrl,
-      file_url: linkUrl, file_type: 'link', folder_id: folderId,
+      display_name: displayName, file_name: cleanUrl,
+      file_url: cleanUrl, file_type: 'link', folder_id: folderId,
       class_name: cls, tags, created_by: sessionStorage.getItem('dh_name')
     });
     if (error) { errEl.textContent = error.message; return; }
@@ -6062,8 +6067,26 @@ async function doUpload() {
 }
 
 // ── File actions ─────────────────────────────────────────────
+function _normalizeExternalUrl(raw) {
+  if (!raw) return '';
+  let u = String(raw).trim();
+  // Nếu dán kiểu "Buổi 1: https://drive.google.com/..." → lấy phần URL thật
+  const m = u.match(/https?:\/\/[^\s"'<>]+/i);
+  if (m) u = m[0].replace(/[.,;)]+$/, '');
+  if (!/^https?:\/\//i.test(u) && !u.startsWith('data:') && !u.startsWith('blob:')) {
+    if (u.startsWith('//')) u = 'https:' + u;
+    else if (/^(drive\.google\.com|docs\.google\.com|www\.|[\w.-]+\.[a-z]{2,})/i.test(u)) u = 'https://' + u;
+  }
+  return u;
+}
+
 async function downloadFile(fileId, url) {
   const f = _fmFiles.find(x => x.id == fileId);
+  const openUrl = _normalizeExternalUrl(url || f?.file_url || '');
+  if (!openUrl || !/^https?:\/\//i.test(openUrl)) {
+    showToast('Link không hợp lệ. Hãy sửa lại URL (bắt đầu bằng https://)', false);
+    return;
+  }
   if (f) {
     await db.from('file_items').update({ download_count: (f.download_count||0) + 1 }).eq('id', fileId);
     // Ghi log
@@ -6073,7 +6096,7 @@ async function downloadFile(fileId, url) {
     });
     f.download_count = (f.download_count||0) + 1;
   }
-  window.open(url, '_blank');
+  window.open(openUrl, '_blank', 'noopener,noreferrer');
 }
 
 function openEditFileModal(fileId) {

@@ -154,6 +154,9 @@
       <a href="#" class="slink" data-page="schedule" data-label="Lịch học">
         <span class="slink-icon">📅</span><span class="slink-label">Lịch học</span>
       </a>
+      <a href="#" class="slink" data-page="files" data-label="Lưu trữ">
+        <span class="slink-icon">🗂️</span><span class="slink-label">Lưu trữ</span>
+      </a>
       <a href="#" class="slink" data-page="profile" data-label="Hồ sơ">
         <span class="slink-icon">👤</span><span class="slink-label">Hồ sơ</span>
       </a>
@@ -526,6 +529,46 @@
         <span style="font-size:1.4rem;flex-shrink:0">💬</span>
         <span>Link học sẽ được gửi qua <b>nhóm Zalo</b> của lớp trước giờ học. Vui lòng để ý thông báo!</span>
       </div>
+    </section>
+
+    <!-- LƯU TRỮ TÀI LIỆU -->
+    <section class="page" id="pageFiles">
+      <div style="background:linear-gradient(135deg,#0f766e,#14b8a6);border-radius:16px;padding:1.25rem 1.5rem;margin-bottom:1.25rem;color:#fff">
+        <h1 style="font-size:1.3rem;font-weight:800;margin:0">🗂️ Lưu trữ tài liệu</h1>
+        <p style="font-size:.8rem;opacity:.85;margin-top:.2rem">Tài liệu theo lớp · lọc theo tag · tải về học</p>
+      </div>
+
+      <div id="stFileBreadcrumb" style="display:flex;align-items:center;gap:.35rem;flex-wrap:wrap;margin-bottom:.85rem;font-size:.85rem;font-weight:600;color:var(--muted)"></div>
+
+      <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem">
+        <div style="position:relative;flex:1;min-width:180px;max-width:320px">
+          <span style="position:absolute;left:.75rem;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none">🔍</span>
+          <input id="stFileSearch" type="text" placeholder="Tìm tên file, tag..."
+            style="width:100%;padding:.5rem 1rem .5rem 2.2rem;border:1.5px solid var(--border);border-radius:10px;outline:none;font-size:.87rem;background:var(--bg);color:var(--text);box-sizing:border-box"
+            oninput="stRenderFileManager()"/>
+        </div>
+        <select id="stFileTagFilter" onchange="stRenderFileManager()"
+          style="padding:.5rem .9rem;border:1.5px solid var(--border);border-radius:10px;outline:none;font-size:.87rem;background:var(--bg);color:var(--text)">
+          <option value="">🏷 Tất cả tag</option>
+        </select>
+        <select id="stFileSortBy" onchange="stRenderFileManager()"
+          style="padding:.5rem .9rem;border:1.5px solid var(--border);border-radius:10px;outline:none;font-size:.87rem;background:var(--bg);color:var(--text)">
+          <option value="name">Sắp xếp: Tên</option>
+          <option value="date">Sắp xếp: Ngày</option>
+          <option value="size">Sắp xếp: Dung lượng</option>
+          <option value="downloads">Sắp xếp: Lượt tải</option>
+        </select>
+        <div style="display:flex;gap:.25rem">
+          <button type="button" onclick="stSetFileView('grid')" id="stFileViewGrid" title="Dạng lưới"
+            style="padding:.4rem .65rem;border:1.5px solid var(--border);border-radius:8px;background:var(--primary);color:#fff;cursor:pointer;font-size:.9rem">⊞</button>
+          <button type="button" onclick="stSetFileView('list')" id="stFileViewList" title="Dạng danh sách"
+            style="padding:.4rem .65rem;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--muted);cursor:pointer;font-size:.9rem">☰</button>
+        </div>
+      </div>
+
+      <div id="stFileTagChips" style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.85rem"></div>
+      <div id="stFileStatsBar" style="display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:1rem"></div>
+      <div id="stFileManagerContent"></div>
     </section>
 
     <!-- HỒ SƠ -->
