@@ -2058,8 +2058,10 @@ function clearQuestionsCache(hwId) {
 
 // Tính breakdown điểm từ cache (sync)
 function calcScoreBreakdown(sub) {
-  const qs = allQuestions[String(sub.homework_id)] || allQuestions[sub.homework_id];
-  if (!qs || !qs.length) return null;
+  const qsRaw = allQuestions[String(sub.homework_id)] || allQuestions[sub.homework_id];
+  if (!qsRaw || !qsRaw.length) return null;
+  const hw = (typeof allHomework !== 'undefined' ? allHomework : []).find(h => String(h.id) === String(sub.homework_id));
+  const qs = _qsForSubmission(hw, qsRaw, sub);
   const answers = sub.answers || {};
   const result = { mc:{got:0,max:0}, tf:{got:0,max:0}, mt:{got:0,max:0}, sa:{got:0,max:0} };
   qs.forEach(q => {
@@ -2069,7 +2071,7 @@ function calcScoreBreakdown(sub) {
     const ms = sub.manual_scores?.[q.id];
     if (q.question_type === 'multiple_choice') {
       result.mc.max += pts;
-      if (a === q.data.correct) result.mc.got += pts;
+      if (_mcIsCorrect(q, answers)) result.mc.got += pts;
     } else if (q.question_type === 'true_false') {
       result.tf.max += pts;
       const stmts = q.data.statements || [];
@@ -5198,6 +5200,99 @@ function _shuffleArr(arr, rng) {
   return a;
 }
 
+// Áp lại đúng thứ tự xáo lúc học sinh làm bài (cùng seed username + homework id)
+function _qsWithStudentShuffle(hw, qs, username, hwId) {
+  if (!hw || !qs) return qs || [];
+  const shuffleQ = !!hw.shuffle_questions;
+  const shuffleA = !!hw.shuffle_answers;
+  if (!shuffleQ && !shuffleA) return qs;
+  const seed = String(username || '') + '_' + String(hwId ?? hw.id);
+  return _shuffleQList(qs, seed, shuffleQ, shuffleA);
+}
+
+function _mcIdx(v) {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function _ansGet(answers, qId) {
+  if (!answers) return undefined;
+  if (answers[qId] !== undefined) return answers[qId];
+  if (qId != null && answers[String(qId)] !== undefined) return answers[String(qId)];
+  return undefined;
+}
+
+function _mcOrigFromShuffled(q, shuffledIdx) {
+  const map = q?.data?._origMap;
+  const si = _mcIdx(shuffledIdx);
+  if (Array.isArray(map) && si != null && map[si] != null) return map[si];
+  return si;
+}
+
+function _mcShuffledFromOrig(q, origIdx) {
+  const map = q?.data?._origMap;
+  const oi = _mcIdx(origIdx);
+  if (!Array.isArray(map) || oi == null) return oi;
+  const i = map.indexOf(oi);
+  return i >= 0 ? i : oi;
+}
+
+function _mcCorrectOrig(q) {
+  if (q?.data?._origCorrect != null) return _mcIdx(q.data._origCorrect);
+  return _mcIdx(q?.data?.correct);
+}
+
+function _optKey(o) {
+  if (o == null) return '';
+  if (typeof o === 'string') return 's:' + o;
+  return 'o:' + String(o.text || '') + '\n' + String(o.img || '');
+}
+
+function _mcKeyMap(answers) {
+  const k = answers && answers.__k;
+  return (k && typeof k === 'object') ? k : null;
+}
+
+function _mcChosenIndex(q, answers) {
+  const opts = q?.data?.options || [];
+  const kmap = _mcKeyMap(answers);
+  const saved = kmap ? (kmap[q.id] ?? kmap[String(q.id)]) : null;
+  // Ưu tiên khớp theo nội dung đáp án đã chọn (không phụ thuộc thứ tự xáo)
+  if (saved != null && saved !== '') {
+    const key = typeof saved === 'object' ? saved.k : saved;
+    if (key) {
+      const byKey = opts.findIndex(o => _optKey(o) === key);
+      if (byKey >= 0) return byKey;
+    }
+    const orig = _mcIdx(typeof saved === 'object' ? saved.o : null);
+    if (orig != null) {
+      if (Array.isArray(q.data?._origMap)) {
+        const sh = q.data._origMap.indexOf(orig);
+        if (sh >= 0) return sh;
+      }
+      return orig;
+    }
+  }
+  const idx = _mcIdx(_ansGet(answers, q.id));
+  if (idx == null) return null;
+  // Bài mới: index gốc → đổi sang vị trí đang hiện nếu đề đang xáo
+  if (answers && answers.__origMc && Array.isArray(q.data?._origMap)) {
+    return _mcShuffledFromOrig(q, idx);
+  }
+  return idx;
+}
+
+function _mcIsCorrect(q, answers) {
+  const ui = _mcChosenIndex(q, answers);
+  const ci = _mcIdx(q.data?.correct);
+  return ui != null && ci != null && ui === ci;
+}
+
+function _qsForSubmission(hw, qs, sub) {
+  return _qsWithStudentShuffle(hw, qs, sub?.username, sub?.homework_id ?? hw?.id);
+}
+
 // Xáo trộn danh sách câu hỏi theo seed, giữ nguyên section headers
 // shuffle_q: xáo vị trí câu hỏi; shuffle_a: xáo đáp án trắc nghiệm
 function _shuffleQList(qs, seed, shuffleQ, shuffleA) {
@@ -5233,11 +5328,22 @@ function _shuffleQList(qs, seed, shuffleQ, shuffleA) {
     result = result.map(q => {
       if (q.question_type !== 'multiple_choice') return q;
       const opts = q.data.options || [];
-      const correct = q.data.correct;
-      const correctText = opts[correct];
-      const shuffledOpts = _shuffleArr(opts, rng);
-      const newCorrect = shuffledOpts.indexOf(correctText);
-      return { ...q, data: { ...q.data, options: shuffledOpts, correct: newCorrect } };
+      const origCorrect = _mcIdx(q.data.correct);
+      const tagged = opts.map((o, i) => ({ o, i }));
+      const shuffled = _shuffleArr(tagged, rng);
+      const shuffledOpts = shuffled.map(x => x.o);
+      const origMap = shuffled.map(x => x.i);
+      const newCorrect = origCorrect == null ? origCorrect : origMap.indexOf(origCorrect);
+      return {
+        ...q,
+        data: {
+          ...q.data,
+          options: shuffledOpts,
+          correct: newCorrect < 0 ? origCorrect : newCorrect,
+          _origMap: origMap,
+          _origCorrect: origCorrect
+        }
+      };
     });
   }
 
@@ -6390,8 +6496,8 @@ function buildQDisplay(qs, answers, isPreview) {
 
 function buildMCDisplay(q, answers, isPreview, idx) {
   const opts=q.data.options||[];
-  const correct=q.data.correct;
-  const chosen=answers?answers[q.id]:undefined;
+  const correct=_mcIdx(q.data.correct);
+  const chosen=_mcChosenIndex(q, answers);
   return `<div style="display:flex;flex-direction:column;gap:.4rem">
     ${opts.map((o,i)=>{
       // Backward compat: option có thể là string hoặc {text,img}
@@ -6421,10 +6527,13 @@ function _trackCurrentQ(qId) {
 
 function mcSelectAnswer(qId,i) {
   _trackCurrentQ(qId);
-  doHWAnswers[qId]=i;
-  // Update UI
-  const q=doHWQList.find(x=>x.id===qId);
+  const q=doHWQList.find(x=>x.id==qId);
   if(!q)return;
+  const opt=(q.data.options||[])[i];
+  // Lưu vị trí đang hiện + nội dung đáp án (để lúc nộp/xem không bị nhảy vì xáo)
+  doHWAnswers[qId]=i;
+  if (!doHWAnswers.__k || typeof doHWAnswers.__k !== 'object') doHWAnswers.__k = {};
+  doHWAnswers.__k[qId] = { k: _optKey(opt), o: _mcOrigFromShuffled(q, i) };
   (q.data.options||[]).forEach((_,idx)=>{
     const el=document.getElementById(`mc_disp_${qId}_${idx}`);
     if(el){el.classList.toggle('selected',idx===i);el.querySelector('.ans-circle').style.background=idx===i?'var(--primary)':'';el.querySelector('.ans-circle').style.color=idx===i?'#fff':'';}
@@ -6660,12 +6769,12 @@ async function submitAnswers(autoSubmit=false) {
   doHWQList.forEach(q => {
     if (q.question_type === 'section') return; // bỏ qua mục phân chia
     const pts = parseFloat(q.points) || 1;
-    const a   = doHWAnswers[q.id];
+    const a   = _ansGet(doHWAnswers, q.id);
     totalMax += pts;
 
     if (q.question_type === 'multiple_choice') {
       autoMax += pts;
-      if (a === q.data.correct) autoScore += pts;
+      if (_mcIsCorrect(q, doHWAnswers)) autoScore += pts;
 
     } else if (q.question_type === 'true_false') {
       autoMax += pts;
@@ -6744,7 +6853,7 @@ async function submitAnswers(autoSubmit=false) {
     username:      currentUser.username,
     student_name:  currentUser.full_name || currentUser.username,
     class_name:    currentUser.class_name || null,
-    answers:       doHWAnswers,
+    answers:       Object.assign({}, doHWAnswers, { __origMc: true }),
     note:          document.getElementById('doHWNoteText').value.trim() || null,
     status:        finalStatus,
     score:         finalScore,
@@ -6818,7 +6927,8 @@ async function openResult(hwId, attemptNum=null) {
   const targetAttempt = attemptNum ?? allSubs[allSubs.length-1].attempt ?? allSubs.length;
   const sub = allSubs.find(s=>(s.attempt||1)===targetAttempt) || allSubs[allSubs.length-1];
 
-  const qs      = await loadQuestions(hwId);   // dùng cache OK khi xem kết quả
+  const qsRaw   = await loadQuestions(hwId);   // dùng cache OK khi xem kết quả
+  const qs      = _qsForSubmission(hw, qsRaw, sub);
   const answers = sub.answers||{};
 
   document.getElementById('resultTitle').textContent = allSubs.length > 1
@@ -6876,7 +6986,7 @@ async function openResult(hwId, attemptNum=null) {
     const pts=parseFloat(q.points)||1;
     const a=answers[q.id];
     if(q.question_type==='multiple_choice'){
-      if(a===q.data.correct) autoScoreCalc+=pts;
+      if(_mcIsCorrect(q, answers)) autoScoreCalc+=pts;
     } else if(q.question_type==='true_false'){
       const stmts=q.data.statements||[];
       let ok=0; stmts.forEach((s,i)=>{ if(a&&a[i]===s.answer)ok++; });
@@ -6985,17 +7095,19 @@ async function openResult(hwId, attemptNum=null) {
     let correctMarkHtml='';
 
     if(q.question_type==='multiple_choice'){
-      const isCorrect=userAns===q.data.correct;
+      const ui = _mcChosenIndex(q, answers);
+      const ci = _mcIdx(q.data.correct);
+      const isCorrect = ui != null && ui === ci;
       verdict=isCorrect?'correct':'wrong';
       const opts = q.data.options||[];
       const getOptText = o => typeof o === 'string' ? o : (o.text||'');
       const getOptImg  = o => typeof o === 'string' ? '' : (o.img||'');
-      const correctLetter = String.fromCharCode(65+q.data.correct);
-      const correctText   = getOptText(opts[q.data.correct]||'');
-      const correctImg    = getOptImg(opts[q.data.correct]||'');
-      const userLetter    = userAns!=null ? String.fromCharCode(65+userAns) : null;
-      const userText      = userAns!=null ? getOptText(opts[userAns]||'') : null;
-      const userImg       = userAns!=null ? getOptImg(opts[userAns]||'') : '';
+      const correctLetter = ci!=null ? String.fromCharCode(65+ci) : '?';
+      const correctText   = ci!=null ? getOptText(opts[ci]||'') : '';
+      const correctImg    = ci!=null ? getOptImg(opts[ci]||'') : '';
+      const userLetter    = ui!=null ? String.fromCharCode(65+ui) : null;
+      const userText      = ui!=null ? getOptText(opts[ui]||'') : null;
+      const userImg       = ui!=null ? getOptImg(opts[ui]||'') : '';
       correctMarkHtml = isCorrect
         ? `<div style="margin-top:.5rem;display:flex;flex-direction:column;gap:.3rem">
              <span style="background:#d1fae5;border-radius:6px;padding:.2rem .55rem;font-size:.85rem;font-weight:700;color:#065f46;display:inline-block">✅ Đúng — ${correctLetter}. ${esc(correctText)}</span>
@@ -7123,7 +7235,7 @@ async function openResult(hwId, attemptNum=null) {
            <div style="border:1.5px solid var(--border);border-radius:9px;padding:.5rem .8rem;font-size:.88rem;background:var(--bg);color:var(--text);min-height:2rem;white-space:pre-wrap">${esc(userAns||'(chưa trả lời)')}</div>`
         : `<div style="font-size:.82rem;color:var(--muted);margin-bottom:.3rem">Câu trả lời của bạn:</div>
            ${q.question_type==='multiple_choice'
-             ? `<div style="font-size:.9rem;font-weight:700">${userAns!=null?String.fromCharCode(65+userAns)+'. '+esc(typeof q.data.options[userAns]==='string'?q.data.options[userAns]:(q.data.options[userAns]?.text||'')):'(chưa chọn)'}</div>`
+             ? `<div style="font-size:.9rem;font-weight:700">${(() => { const ui=_mcChosenIndex(q, answers); return ui!=null?String.fromCharCode(65+ui)+'. '+esc(typeof q.data.options[ui]==='string'?q.data.options[ui]:(q.data.options[ui]?.text||'')): '(chưa chọn)'; })()}</div>`
              : q.question_type==='true_false'
                ? `<div style="display:flex;flex-wrap:wrap;gap:.3rem">${(q.data.statements||[]).map((s,i)=>`<span style="font-size:.8rem;padding:.15rem .45rem;border-radius:6px;background:var(--bg);border:1px solid var(--border)">${i+1}: ${userAns&&userAns[i]!==undefined?(userAns[i]?'Đúng':'Sai'):'?'}</span>`).join('')}</div>`
                : `<div style="font-size:.85rem">${JSON.stringify(userAns||'(chưa trả lời)')}</div>`
@@ -7144,7 +7256,8 @@ async function viewStudentResult(subId) {
   const sub=allSubmissions.find(s=>s.id===subId);
   if(!sub)return;
   const hw=allHomework.find(h=>h.id===sub.homework_id);
-  const qs=await loadQuestions(sub.homework_id);
+  const qsRaw=await loadQuestions(sub.homework_id);
+  const qs=_qsForSubmission(hw, qsRaw, sub);
 
   document.getElementById('resultTitle').textContent=`📋 ${hw?.title||''} — ${sub.student_name||sub.username}`;
 
@@ -7209,7 +7322,7 @@ async function viewStudentResult(subId) {
     // Tính đúng/sai
     let verdict='';
     if(q.question_type==='multiple_choice'){
-      verdict = ua===q.data.correct ? 'correct' : 'wrong';
+      verdict = _mcIsCorrect(q, answers) ? 'correct' : 'wrong';
     } else if(q.question_type==='true_false'){
       const stmts=q.data.statements||[];
       const allOk = stmts.every((s,i)=>ua&&ua[i]===s.answer);
@@ -7239,7 +7352,7 @@ async function viewStudentResult(subId) {
         q.question_type==='short_answer'
           ? esc(ua||'(trống)')
           : q.question_type==='multiple_choice'
-            ? (ua!=null ? String.fromCharCode(65+ua)+'. '+esc(typeof q.data.options[ua]==='string'?q.data.options[ua]:(q.data.options[ua]?.text||'')) : '(chưa chọn)')
+            ? (() => { const ui=_mcChosenIndex(q, answers); return ui!=null ? String.fromCharCode(65+ui)+'. '+esc(typeof q.data.options[ui]==='string'?q.data.options[ui]:(q.data.options[ui]?.text||'')) : '(chưa chọn)'; })()
             : q.question_type==='true_false'
               ? `<div style="display:flex;flex-wrap:wrap;gap:.3rem">${(q.data.statements||[]).map((s,i)=>{
                   const ok=ua&&ua[i]===s.answer;
@@ -7271,7 +7384,8 @@ async function openGrade(subId, studentName) {
   const sub = allSubmissions.find(s=>s.id===subId);
   if (!sub) return;
   const hw  = allHomework.find(h=>h.id===sub.homework_id);
-  const qs  = await loadQuestions(sub.homework_id);
+  const qsRaw = await loadQuestions(sub.homework_id);
+  const qs  = _qsForSubmission(hw, qsRaw, sub);
   const answers = sub.answers||{};
 
   // Tính điểm tự chấm (máy) — MC, TF, Matching + SA auto-grade
@@ -7282,7 +7396,7 @@ async function openGrade(subId, studentName) {
     const a=answers[q.id];
     if(autoTypes.includes(q.question_type)){
       autoMax+=pts;
-      if(q.question_type==='multiple_choice'){ if(a===q.data.correct)autoScore+=pts; }
+      if(q.question_type==='multiple_choice'){ if(_mcIsCorrect(q, answers))autoScore+=pts; }
       else if(q.question_type==='true_false'){
         const stmts=q.data.statements||[]; let ok=0;
         stmts.forEach((s,i)=>{ if(a&&a[i]===s.answer)ok++; });
@@ -8829,17 +8943,21 @@ async function showHWSummary(hwId) {
   const realQs = qs.filter(q => q.question_type !== 'section' && q.question_type !== 'short_answer');
   subs.forEach(sub => {
     const answers = sub.answers || {};
+    const sqs = _qsForSubmission(hw, qs, sub);
+    const qMap = {};
+    sqs.forEach(q => { if (q && q.id != null) qMap[q.id] = q; });
     realQs.forEach(q => {
+      const sq = qMap[q.id] || q;
       const a = answers[q.id];
       let wrong = false;
-      if (q.question_type === 'multiple_choice') {
-        wrong = a !== q.data.correct;
-      } else if (q.question_type === 'true_false') {
-        const stmts = q.data.statements || [];
+      if (sq.question_type === 'multiple_choice') {
+        wrong = !_mcIsCorrect(sq, answers);
+      } else if (sq.question_type === 'true_false') {
+        const stmts = sq.data.statements || [];
         const numWrong = stmts.filter((s,i) => !a || a[i] !== s.answer).length;
         wrong = numWrong > 0;
-      } else if (q.question_type === 'matching') {
-        const pairs = q.data.correct_pairs || [];
+      } else if (sq.question_type === 'matching') {
+        const pairs = sq.data.correct_pairs || [];
         wrong = pairs.some(([l,r]) => !a || a[l] !== r);
       }
       if (wrong) errorCount[q.id] = (errorCount[q.id] || 0) + 1;
