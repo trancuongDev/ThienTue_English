@@ -69,39 +69,91 @@ document.getElementById('welcomeTitle').textContent = `Xin chào, ${currentName}
 document.getElementById('profileName').textContent  = currentName;
 
 let myClass = '';
-let myClasses = []; // Hỗ trợ nhiều lớp — load từ student_classes
+let myClasses = []; // Hỗ trợ nhiều lớp — gộp students.class_name + student_classes
+let _lessonGroupMap = {};
+
+function normalizeClassName(name) {
+  return String(name || '')
+    .replace(/[\u00a0\u2000-\u200b\ufeff]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .normalize('NFC')
+    .toLowerCase();
+}
 
 function parseClassList(raw) {
-  return (raw || '')
+  if (Array.isArray(raw)) {
+    return [...new Set(raw.flatMap(v => parseClassList(v)))];
+  }
+  return String(raw || '')
     .split(',')
-    .map(c => c.trim())
+    .map(c => c.replace(/[\u00a0\u2000-\u200b\ufeff]/g, ' ').replace(/\s+/g, ' ').trim())
     .filter(Boolean);
+}
+
+function classListsOverlap(listA, listB) {
+  const setB = new Set((listB || []).map(normalizeClassName).filter(Boolean));
+  if (!setB.size) return false;
+  return (listA || []).some(c => setB.has(normalizeClassName(c)));
+}
+
+function usernameAllowed(raw, username) {
+  if (!raw || !username) return false;
+  return String(raw).split(',').map(u => u.trim().toLowerCase()).filter(Boolean)
+    .includes(String(username).trim().toLowerCase());
+}
+
+function resolveGroupClassName(g, groupMap) {
+  if (!g) return '';
+  const map = groupMap || _lessonGroupMap || {};
+  const groups = Object.values(map);
+  const seen = new Set();
+  let cur = g;
+  while (cur) {
+    if (cur.id != null) {
+      if (seen.has(String(cur.id))) break;
+      seen.add(String(cur.id));
+    }
+    if ((cur.class_name || '').trim()) return cur.class_name;
+    if (cur.parent_id == null || cur.parent_id === '') break;
+    cur = map[cur.parent_id] || groups.find(x => x.id == cur.parent_id) || null;
+  }
+  return '';
+}
+
+function findGroupForLesson(lesson, groupMap) {
+  const map = groupMap || _lessonGroupMap || {};
+  const groups = Object.values(map);
+  if (lesson?.group_id != null && lesson.group_id !== '') {
+    const byId = map[lesson.group_id] || groups.find(g => g.id == lesson.group_id);
+    if (byId) return byId;
+  }
+  if (lesson?.group_name) {
+    return groups.find(g => g.name === lesson.group_name) || null;
+  }
+  return null;
 }
 
 function lessonMatchesStudentClasses(lesson, classes) {
-  // Ưu tiên 1: nếu có allowed_usernames → chỉ học sinh trong danh sách mới thấy
-  if (lesson?.allowed_usernames) {
-    const allowed = lesson.allowed_usernames.split(',').map(u => u.trim()).filter(Boolean);
-    return allowed.includes(currentUser);
-  }
-  // Mặc định: kiểm tra theo lớp
-  const lessonClasses = (lesson?.class_name || '')
-    .split(',')
-    .map(c => c.trim())
-    .filter(Boolean);
-  if (!lessonClasses.length) return false; // null/empty = không gán lớp → không hiện cho ai
-  return classes.some(cls => lessonClasses.includes(cls));
+  // Gán học sinh cụ thể = thêm quyền xem (không chặn các lớp đã gán)
+  if (usernameAllowed(lesson?.allowed_usernames, currentUser)) return true;
+  const lessonClasses = parseClassList(lesson?.class_name);
+  if (!lessonClasses.length) return false;
+  return classListsOverlap(lessonClasses, classes);
 }
 
-// Kiểm tra nhóm bài học có visible với học sinh hiện tại không
-function groupMatchesStudent(g) {
-  if (g?.allowed_usernames) {
-    const allowed = g.allowed_usernames.split(',').map(u => u.trim()).filter(Boolean);
-    return allowed.includes(currentUser);
-  }
-  if (!g?.class_name) return false;
-  const gc = g.class_name.split(',').map(c => c.trim()).filter(Boolean);
-  return myClasses.some(mc => gc.includes(mc));
+function groupMatchesStudent(g, groupMap) {
+  if (!g) return false;
+  if (usernameAllowed(g.allowed_usernames, currentUser)) return true;
+  const gc = parseClassList(resolveGroupClassName(g, groupMap));
+  if (!gc.length) return false;
+  return classListsOverlap(gc, myClasses);
+}
+
+function lessonVisibleToStudent(lesson, classes, groupMap) {
+  if (lessonMatchesStudentClasses(lesson, classes)) return true;
+  const g = findGroupForLesson(lesson, groupMap);
+  return !!(g && groupMatchesStudent(g, groupMap));
 }
 
 
@@ -113,16 +165,14 @@ function debounce(fn, ms) {
 async function loadMe() {
   const { data } = await db.from('students').select('id, class_name, student_code, expiry_date, created_at, username, active').eq('username', currentUser).single();
   myClass = data?.class_name || '';
-  // Load tất cả lớp từ student_classes
+  // Gộp lớp chính (students.class_name) VÀ lớp phụ (student_classes)
+  // Trước đây nếu đã có student_classes thì bỏ lớp chính → một số lớp không thấy bài
+  let fromSC = [];
   if (data?.id) {
     const { data: scData } = await db.from('student_classes').select('class_name').eq('student_id', data.id);
-    myClasses = (scData||[]).length > 0
-      ? (scData||[]).flatMap(sc => parseClassList(sc.class_name))
-      : parseClassList(myClass);
-  } else {
-    myClasses = parseClassList(myClass);
+    fromSC = (scData || []).flatMap(sc => parseClassList(sc.class_name));
   }
-  myClasses = [...new Set(myClasses)];
+  myClasses = [...new Set([...parseClassList(myClass), ...fromSC])];
   myClass = myClasses[0] || ''; // giữ tương thích chỗ cũ dùng myClass
   sessionStorage.setItem('dh_code', data?.student_code || '');
   sessionStorage.setItem('dh_class', myClasses.join(', '));
@@ -339,11 +389,7 @@ async function renderHome() {
     db.from('lesson_groups').select('id,class_name,allowed_usernames')
   ]);
   const groupMapHome = Object.fromEntries((allGroupsHome||[]).map(g => [g.id, g]));
-  const list = (allRecentLessons || []).filter(l => {
-    if (lessonMatchesStudentClasses(l, myClasses)) return true;
-    if (l.group_id && groupMapHome[l.group_id]) return groupMatchesStudent(groupMapHome[l.group_id]);
-    return false;
-  }).slice(0, 4);
+  const list = (allRecentLessons || []).filter(l => lessonVisibleToStudent(l, myClasses, groupMapHome)).slice(0, 4);
 
   // Thông báo
   const annSection = document.getElementById('announcementSection');
@@ -352,7 +398,7 @@ async function renderHome() {
     const now = new Date();
     const myAnns = (anns||[]).filter(a =>
       (!a.expires_at || new Date(a.expires_at) > now) &&
-      (a.target_username ? a.target_username === currentUser : (!a.class_name || myClasses.includes(a.class_name)))
+      (a.target_username ? a.target_username === currentUser : (!a.class_name || classListsOverlap(parseClassList(a.class_name), myClasses)))
     );
     if (myAnns.length) {
       annSection.style.display = '';
@@ -440,47 +486,41 @@ async function renderLessonList(forceRefresh = false) {
       .order('created_at',{ascending:true})
       .limit(5000);
 
-    // 3. Tạo map nhóm để tra nhanh
+    // 3. Tạo map nhóm để tra nhanh (id có thể là number hoặc string)
     const groupMap = Object.fromEntries((allGroups||[]).map(g => [g.id, g]));
+    _lessonGroupMap = groupMap;
 
-    // 4. Filter bài học — bài visible khi:
-    //    a) Bài có allowed_usernames chứa username học sinh NÀY, HOẶC
-    //    b) Bài không có allowed_usernames VÀ class_name khớp lớp, HOẶC
-    //    c) Nhóm của bài có allowed_usernames chứa username học sinh NÀY, HOẶC
-    //    d) Nhóm của bài không có allowed_usernames VÀ class_name nhóm khớp lớp
-    const merged = (allLessonsRaw || []).filter(l => {
-      // Kiểm tra bản thân bài học
-      if (lessonMatchesStudentClasses(l, myClasses)) return true;
-      // Kiểm tra nhóm của bài
-      if (l.group_id && groupMap[l.group_id]) {
-        return groupMatchesStudent(groupMap[l.group_id]);
-      }
-      return false;
-    });
+    // 4. Filter bài học — hiện khi:
+    //    a) Bài gán username học sinh này, HOẶC
+    //    b) class_name bài khớp lớp học sinh (chuẩn hóa tên), HOẶC
+    //    c) Nhóm của bài (theo group_id hoặc group_name, kể cả nhóm cha) khớp lớp/username
+    const merged = (allLessonsRaw || []).filter(l => lessonVisibleToStudent(l, myClasses, groupMap));
 
     const lessonIds = merged.map(l => l.id);
     const [{ data: allVids }, { data: allDocs }] = await Promise.all([
       lessonIds.length ? db.from('lesson_videos').select('lesson_id').in('lesson_id', lessonIds) : { data: [] },
       lessonIds.length ? db.from('lesson_docs').select('lesson_id').in('lesson_id', lessonIds) : { data: [] },
     ]);
-    _lessonCache = { list: merged, allVids: allVids||[], allDocs: allDocs||[], allGroups: allGroups||[] };
+    _lessonCache = { list: merged, allVids: allVids||[], allDocs: allDocs||[], allGroups: allGroups||[], groupMap };
   }
 
   renderLessonListFromCache();
 }
 
 function renderLessonListFromCache() {
-  const { list, allVids, allDocs, allGroups } = _lessonCache;
+  const { list, allVids, allDocs, allGroups, groupMap } = _lessonCache;
   const el = document.getElementById('sLessonList');
   el.innerHTML = '';
+  const localGroupMap = groupMap || Object.fromEntries((allGroups||[]).map(g => [g.id, g]));
+  _lessonGroupMap = localGroupMap;
   const normalizedGroups = [];
   const seenGroupIds = new Set();
   const seenGroupKeys = new Set();
   (allGroups || []).forEach(g => {
-    if (g?.id != null && seenGroupIds.has(g.id)) return;
+    if (g?.id != null && seenGroupIds.has(String(g.id))) return;
     const groupKey = `${g?.name || ''}__${g?.parent_id || ''}__${g?.class_name || ''}__${g?.allowed_usernames || ''}`;
     if (seenGroupKeys.has(groupKey)) return;
-    if (g?.id != null) seenGroupIds.add(g.id);
+    if (g?.id != null) seenGroupIds.add(String(g.id));
     seenGroupKeys.add(groupKey);
     normalizedGroups.push(g);
   });
@@ -515,12 +555,17 @@ function renderLessonListFromCache() {
     if (l.group_id || l.group_name) assignedLessonIds.add(l.id);
   });
 
-  // Lấy bài học theo nhóm — ưu tiên group_id tuyệt đối, fallback group_name chỉ cho bài chưa có group_id
+  // Lấy bài học theo nhóm — ưu tiên group_id, fallback group_name chỉ cho bài chưa có group_id
   function getLessonsForGroup(gId, gName) {
     return filtered.filter(l => {
-      if (l.group_id != null) return l.group_id === gId;   // bài có group_id → chỉ match đúng nhóm
-      return l.group_name === gName;                        // bài cũ chưa có group_id → fallback
+      if (l.group_id != null && l.group_id !== '') return l.group_id == gId;
+      return l.group_name === gName;
     });
+  }
+
+  function groupHasVisibleContent(g) {
+    if (getLessonsForGroup(g.id, g.name).length) return true;
+    return (normalizedGroups || []).some(x => x.parent_id == g.id && groupHasVisibleContent(x));
   }
 
   // Lấy yêu thích 1 lần
@@ -562,10 +607,10 @@ function renderLessonListFromCache() {
 
   function buildGroupCard(g, depth, colorIdx) {
     const c = colors[colorIdx % colors.length];
-    // Nhóm con: filter theo lớp học viên hoặc gán riêng học sinh này
+    // Hiện nhóm con nếu khớp lớp, hoặc bên trong còn bài học viên được xem
     const children = (normalizedGroups||[]).filter(x => {
-      if (x.parent_id !== g.id) return false;
-      return groupMatchesStudent(x);
+      if (x.parent_id != g.id) return false;
+      return groupMatchesStudent(x, localGroupMap) || groupHasVisibleContent(x);
     });
     const directLessons = getLessonsForGroup(g.id, g.name);
     // Bỏ qua nhóm không có nội dung gì
@@ -639,10 +684,10 @@ function renderLessonListFromCache() {
   // Bài học không thuộc nhóm nào (và chưa được render trong nhóm)
   const ungrouped = filtered.filter(l => !assignedLessonIds.has(l.id));
 
-  // Render nhóm gốc — hiển thị nhóm theo lớp học viên HOẶC được gán riêng
+  // Render nhóm gốc — hiện nếu khớp lớp/username HOẶC bên trong có bài học viên được xem
   const roots = (normalizedGroups||[]).filter(g => {
     if (g.parent_id) return false; // chỉ lấy root
-    return groupMatchesStudent(g);
+    return groupMatchesStudent(g, localGroupMap) || groupHasVisibleContent(g);
   });
   const seenRootIds = new Set();
   roots.forEach((g, gi) => {
@@ -1334,7 +1379,7 @@ async function renderNotifications() {
   const now = new Date();
   const myAnns = (anns || []).filter(a =>
     (!a.expires_at || new Date(a.expires_at) > now) &&
-    (a.target_username ? a.target_username === currentUser : (!a.class_name || myClasses.includes(a.class_name)))
+    (a.target_username ? a.target_username === currentUser : (!a.class_name || classListsOverlap(parseClassList(a.class_name), myClasses)))
   );
   const list = document.getElementById('notiPageList');
   const empty = document.getElementById('notiPageEmpty');
@@ -1390,7 +1435,7 @@ async function checkNewNotifications(showPopupIfUnread = false) {
     .select('id, class_name, expires_at, target_username').order('created_at', { ascending: false });
   const myAnns = (anns || []).filter(a =>
     (!a.expires_at || new Date(a.expires_at) > new Date()) &&
-    (a.target_username ? a.target_username === currentUser : (!a.class_name || myClasses.includes(a.class_name)))
+    (a.target_username ? a.target_username === currentUser : (!a.class_name || classListsOverlap(parseClassList(a.class_name), myClasses)))
   );
 
   const { data: reads } = await db.from('notification_reads')
@@ -1441,7 +1486,7 @@ async function showAnnouncementToast(ann = null) {
     ann = (anns||[]).find(a =>
       !readSet.has(a.id) &&
       (!a.expires_at || new Date(a.expires_at) > now) &&
-      (a.target_username ? a.target_username === currentUser : (!a.class_name || myClasses.includes(a.class_name)))
+      (a.target_username ? a.target_username === currentUser : (!a.class_name || classListsOverlap(parseClassList(a.class_name), myClasses)))
     );
     if (!ann) return;
   }
@@ -1636,17 +1681,9 @@ function _scheduleLessonReload() {
 db.channel('student-new-lesson')
   .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'lessons' }, async (payload) => {
     const lesson = payload.new;
-    // Kiểm tra bài có dành cho học sinh này không
-    if (lesson.allowed_usernames) {
-      const allowed = lesson.allowed_usernames.split(',').map(u=>u.trim()).filter(Boolean);
-      if (!allowed.includes(currentUser)) return;
-      showNewLessonToast(lesson.name, true); // gán riêng
-    } else if (lesson.class_name) {
-      if (!myClasses.some(mc => lesson.class_name.split(',').map(c=>c.trim()).includes(mc))) return;
-      showNewLessonToast(lesson.name, false);
-    } else {
-      return; // không gán lớp và không gán riêng → bỏ qua
-    }
+    if (!lessonVisibleToStudent(lesson, myClasses, _lessonGroupMap)) return;
+    const isPersonal = usernameAllowed(lesson.allowed_usernames, currentUser);
+    showNewLessonToast(lesson.name, isPersonal);
     _scheduleLessonReload();
   })
   .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'lessons' }, async (payload) => {
@@ -1831,13 +1868,12 @@ async function renderStudentSchedule() {
     .eq('week_start', ws)
     .order('day_of_week').order('start_time');
 
-  if (activeClasses.length > 0) {
-    const classFilters = activeClasses.map(c => `class_name.eq.${c}`).join(',');
-    query = query.or(`${classFilters},class_name.is.null`);
-  }
-
-  const { data: slots } = await query;
-  const list = slots || [];
+  const { data: slotsRaw } = await query;
+  const list = (slotsRaw || []).filter(s => {
+    if (!s.class_name) return true;
+    if (!activeClasses.length) return true;
+    return classListsOverlap(parseClassList(s.class_name), activeClasses);
+  });
 
   const container = document.getElementById('sScheduleTable');
   const emptyEl   = document.getElementById('sEmptySchedule');
@@ -2015,16 +2051,8 @@ async function renderStVocabSets() {
   const rows = (data || []).filter(s => {
     // Không giới hạn lớp/username → hiện cho tất cả
     if (!s.class_name && !s.allowed_usernames) return true;
-    // Giới hạn theo username
-    if (s.allowed_usernames) {
-      const allowed = s.allowed_usernames.split(',').map(u => u.trim().toLowerCase()).filter(Boolean);
-      if (allowed.includes((currentUser || '').toLowerCase())) return true;
-    }
-    // Giới hạn theo lớp
-    if (s.class_name && myClasses.length) {
-      const setCls = s.class_name.split(',').map(c => c.trim()).filter(Boolean);
-      if (setCls.some(c => myClasses.includes(c))) return true;
-    }
+    if (usernameAllowed(s.allowed_usernames, currentUser)) return true;
+    if (s.class_name && classListsOverlap(parseClassList(s.class_name), myClasses)) return true;
     return false;
   });
   if (!rows.length) { list.innerHTML = `<div style="color:var(--muted);padding:2rem;text-align:center;grid-column:1/-1">Chưa có bộ từ vựng nào cho bạn.</div>`; return; }
@@ -2216,14 +2244,8 @@ async function renderStGrammarLessons() {
   if (error) { list.innerHTML = `<p style="color:var(--danger)">Lỗi: ${error.message}</p>`; return; }
   const rows = (data || []).filter(l => {
     if (!l.class_name && !l.allowed_usernames) return true;
-    if (l.allowed_usernames) {
-      const allowed = l.allowed_usernames.split(',').map(u => u.trim().toLowerCase()).filter(Boolean);
-      if (allowed.includes((currentUser || '').toLowerCase())) return true;
-    }
-    if (l.class_name && myClasses.length) {
-      const lCls = l.class_name.split(',').map(c => c.trim()).filter(Boolean);
-      if (lCls.some(c => myClasses.includes(c))) return true;
-    }
+    if (usernameAllowed(l.allowed_usernames, currentUser)) return true;
+    if (l.class_name && classListsOverlap(parseClassList(l.class_name), myClasses)) return true;
     return false;
   });
   if (!rows.length) { list.innerHTML = `<div style="color:var(--muted);padding:2rem;text-align:center;grid-column:1/-1">Chưa có bài ngữ pháp nào cho bạn.</div>`; return; }
@@ -2398,8 +2420,7 @@ function _stFmVisibleToStudent(item) {
   const cls = (item.class_name || '').trim();
   if (!cls) return true; // tất cả học sinh
   if (cls === 'private') return false;
-  const parts = cls.split(',').map(c => c.trim()).filter(Boolean);
-  return parts.some(c => myClasses.includes(c));
+  return classListsOverlap(parseClassList(cls), myClasses);
 }
 
 async function initStFileManager() {

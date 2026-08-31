@@ -1881,6 +1881,39 @@ function _setHwClassSelect(value) {
   _renderHwClassTags();
 }
 
+function _hwNormClass(name) {
+  return String(name || '')
+    .replace(/[\u00a0\u2000-\u200b\ufeff]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .normalize('NFC')
+    .toLowerCase();
+}
+function _hwParseClasses(raw) {
+  return String(raw || '')
+    .split(',')
+    .map(c => c.replace(/[\u00a0\u2000-\u200b\ufeff]/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+function _hwClassOverlap(listA, listB) {
+  const setB = new Set((listB || []).map(_hwNormClass).filter(Boolean));
+  if (!setB.size) return false;
+  return (listA || []).some(c => setB.has(_hwNormClass(c)));
+}
+function _hwUsernameAllowed(raw, username) {
+  if (!raw || !username) return false;
+  return String(raw).split(',').map(u => u.trim().toLowerCase()).filter(Boolean)
+    .includes(String(username).trim().toLowerCase());
+}
+
+let _studentMyClasses = [];
+
+function _hwVisibleToStudent(h, classes, username) {
+  if (_hwUsernameAllowed(h?.allowed_usernames, username)) return true;
+  if (!h?.class_name) return true;
+  return _hwClassOverlap(_hwParseClasses(h.class_name), classes);
+}
+
 let allStudentCodes = {}; // username → student_code
 
 async function loadAdminData() {
@@ -1888,23 +1921,19 @@ async function loadAdminData() {
   const _gvClass = sessionStorage.getItem('dh_teacher_class') || null;
   const _gvClasses = _gvClass ? _gvClass.split(',').map(c=>c.trim()).filter(Boolean) : null;
 
-  let hwQuery = sb.from('homework').select('*').is('deleted_at', null).order('created_at',{ascending:false});
-  // Nếu là GV có lớp → chỉ lấy bài của lớp đó
+  let hwQuery = sb.from('homework').select('*').is('deleted_at', null).order('created_at',{ascending:false}).limit(2000);
+  const [hwR,subR] = await Promise.all([
+    hwQuery,
+    sb.from('homework_submissions').select('*').order('submitted_at',{ascending:false}).limit(5000)
+  ]);
+  let hwList = hwR.data || [];
+  let subList = subR.data || [];
   if (_gvClasses && _gvClasses.length) {
-    const orFilter = _gvClasses.map(c => `class_name.eq.${c}`).join(',');
-    hwQuery = hwQuery.or(`class_name.is.null,${orFilter}`);
+    hwList = hwList.filter(h => !h.class_name || _hwClassOverlap(_hwParseClasses(h.class_name), _gvClasses));
+    subList = subList.filter(s => !s.class_name || _hwClassOverlap(_hwParseClasses(s.class_name), _gvClasses));
   }
-
-  let subQuery = sb.from('homework_submissions').select('*').order('submitted_at',{ascending:false});
-  // GV chỉ thấy bài nộp của lớp mình
-  if (_gvClasses && _gvClasses.length) {
-    const orFilter2 = _gvClasses.map(c => `class_name.eq.${c}`).join(',');
-    subQuery = subQuery.or(orFilter2);
-  }
-
-  const [hwR,subR] = await Promise.all([hwQuery, subQuery]);
-  allHomework    = hwR.data  || [];
-  allSubmissions = subR.data || [];
+  allHomework    = hwList;
+  allSubmissions = subList;
 
   // Preload questions cho tất cả bài tập đã có bài nộp
   const hwIds = [...new Set(allSubmissions.map(s=>s.homework_id))];
@@ -1937,49 +1966,22 @@ let allTopScores = {}; // { homework_id: { score, name, max_score } }
 
 async function loadStudentData() {
   const cn = currentUser.class_name || '';
-  // Hỗ trợ đa lớp — đọc từ student_classes để lấy đủ lớp
-  let myClasses = cn.split(',').map(c => c.trim()).filter(Boolean);
+  let myClasses = _hwParseClasses(cn);
   try {
     if (currentUser.id) {
       const { data: scData } = await sb.from('student_classes')
         .select('class_name').eq('student_id', currentUser.id);
-      if (scData && scData.length > 0) {
-        const extra = scData.flatMap(sc => (sc.class_name||'').split(',').map(c=>c.trim()).filter(Boolean));
-        myClasses = [...new Set([...myClasses, ...extra])];
-      }
+      const extra = (scData || []).flatMap(sc => _hwParseClasses(sc.class_name));
+      myClasses = [...new Set([...myClasses, ...extra])];
     }
   } catch(e) { /* fallback dùng class_name từ session */ }
-
-  // Build or-filter: bài cho tất cả (null) OR bài cho bất kỳ lớp nào của mình
-  // Lọc bỏ bài đã xóa vào thùng rác
-  let hwQuery = sb.from('homework').select('*')
-    .eq('is_draft', false)
-    .is('deleted_at', null)
-    .order('created_at',{ascending:false});
-  if (myClasses.length > 0) {
-    const classFilters = myClasses.map(c => `class_name.eq.${c}`).join(',');
-    hwQuery = hwQuery.or(`class_name.is.null,${classFilters}`);
-  } else {
-    hwQuery = hwQuery.is('class_name', null);
-  }
+  _studentMyClasses = myClasses;
 
   const [hwR, subR] = await Promise.all([
-    hwQuery,
+    sb.from('homework').select('*').eq('is_draft', false).is('deleted_at', null).order('created_at',{ascending:false}).limit(2000),
     sb.from('homework_submissions').select('*').eq('username', currentUser.username)
   ]);
-  // Filter phía client để hỗ trợ class_name dạng "12A,12B" (nhiều lớp) + allowed_usernames
-  const rawHomework = hwR.data || [];
-  allHomework = rawHomework.filter(h => {
-    // Ưu tiên: bài được gán riêng cho học sinh này
-    if (h.allowed_usernames) {
-      const allowed = h.allowed_usernames.split(',').map(u => u.trim()).filter(Boolean);
-      return allowed.includes(currentUser.username);
-    }
-    // Mặc định: theo lớp
-    if (!h.class_name) return true; // giao tất cả
-    const hwClasses = h.class_name.split(',').map(c => c.trim()).filter(Boolean);
-    return myClasses.some(mc => hwClasses.includes(mc));
-  });
+  allHomework = (hwR.data || []).filter(h => _hwVisibleToStudent(h, myClasses, currentUser.username));
   allSubmissions = subR.data || [];
 
   // Load điểm cao nhất mỗi bài của cả lớp (chỉ lấy score, không lộ tên)
@@ -1997,8 +1999,7 @@ async function loadStudentData() {
     (topData||[]).forEach(s => {
       // Chỉ tính bài của cùng lớp (hỗ trợ đa lớp)
       if (myClasses.length > 0 && s.class_name) {
-        const sCls = s.class_name.split(',').map(c=>c.trim()).filter(Boolean);
-        if (!sCls.some(c => myClasses.includes(c))) return;
+        if (!_hwClassOverlap(_hwParseClasses(s.class_name), myClasses)) return;
       }
       const key = String(s.homework_id);
       if (!allTopScores[key] || s.score > allTopScores[key].score) {
@@ -8416,8 +8417,9 @@ async function renderStudentRanking() {
     if (_studentTabToken !== myToken) { clearInterval(_rankingRefreshInterval); _rankingRefreshInterval = null; return; }
 
     try {
-      const cn = currentUser.class_name || '';
-      const myClasses = cn.split(',').map(c=>c.trim()).filter(Boolean);
+      const myClasses = (_studentMyClasses && _studentMyClasses.length)
+        ? _studentMyClasses
+        : _hwParseClasses(currentUser.class_name);
 
       // Lấy bài tập đã có bài nộp
       const hwWithSubs = allHomework.filter(h =>
@@ -8439,8 +8441,7 @@ async function renderStudentRanking() {
       // Lọc cùng lớp
       const classSubs = (allSubs||[]).filter(s => {
         if (!myClasses.length) return true;
-        const sc = (s.class_name||'').split(',').map(c=>c.trim());
-        return sc.some(c => myClasses.includes(c));
+        return _hwClassOverlap(_hwParseClasses(s.class_name), myClasses);
       });
 
       // Gom điểm cao nhất mỗi người mỗi bài
@@ -9338,21 +9339,18 @@ function initRealtime() {
         else if (adminTab === 'notdone')     renderAdminNotDone();
       } else {
         // Học sinh: kiểm tra bài mới có dành cho lớp mình không
-        const myClasses = (currentUser.class_name||'').split(',').map(c=>c.trim()).filter(Boolean);
-        const hwClass   = (nw?.class_name||'').split(',').map(c=>c.trim()).filter(Boolean);
-        // Relevant: gán riêng cho mình, hoặc theo lớp, hoặc giao tất cả
-        const allowedList = nw?.allowed_usernames
-          ? nw.allowed_usernames.split(',').map(u=>u.trim()).filter(Boolean)
-          : null;
-        const relevant = allowedList
-          ? allowedList.includes(currentUser.username)
-          : (!hwClass.length || myClasses.some(c=>hwClass.includes(c)));
+        const myClasses = (_studentMyClasses && _studentMyClasses.length)
+          ? _studentMyClasses
+          : _hwParseClasses(currentUser.class_name);
+        const relevant = _hwVisibleToStudent(nw, myClasses, currentUser.username);
 
         if (eventType === 'INSERT' && relevant && !nw?.is_draft) {
           await loadStudentData();
           renderStudentList();
           updateGuideStats();
-          const notifMsg = allowedList ? `Giáo viên vừa giao riêng cho bạn: ${nw?.title}` : (nw?.title || 'Giáo viên vừa giao bài mới!');
+          const notifMsg = _hwUsernameAllowed(nw?.allowed_usernames, currentUser.username)
+            ? `Giáo viên vừa giao riêng cho bạn: ${nw?.title}`
+            : (nw?.title || 'Giáo viên vừa giao bài mới!');
           showRealtimeNotify('📝 Bài tập mới', notifMsg);
         } else if (eventType === 'UPDATE') {
           // Khi GV publish nháp → học sinh nhận thông báo

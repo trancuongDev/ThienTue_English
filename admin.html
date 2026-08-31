@@ -1503,7 +1503,7 @@
         <div id="lStudentTags" style="display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.5rem;min-height:0"></div>
         <input type="hidden" id="lAllowedUsernames"/>
         <div style="font-size:.75rem;color:var(--muted);margin-top:.3rem">
-          ℹ️ Khi gán học sinh, bài học sẽ <b>chỉ hiển thị với những học sinh này</b> (bất kể lớp).
+          ℹ️ Gán lớp (theo nhóm) → cả lớp đều thấy. Gán học sinh → những học sinh đó luôn thấy (kể cả khác lớp). Có thể dùng cả hai.
         </div>
       </div>
 
@@ -1732,7 +1732,7 @@
       <div id="groupStudentTags" style="display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.5rem;min-height:0"></div>
       <input type="hidden" id="groupAllowedUsernames"/>
       <div style="font-size:.75rem;color:var(--muted);margin-top:.3rem">
-        ℹ️ Khi gán học sinh, nhóm bài học sẽ <b>chỉ hiển thị với những học sinh này</b> (bất kể lớp).
+        ℹ️ Gán lớp → cả lớp đều thấy. Gán học sinh → những học sinh đó luôn thấy (kể cả khác lớp). Có thể dùng cả hai.
       </div>
 
       <div id="groupError" class="error-msg"></div>
@@ -1843,7 +1843,7 @@
   </div>
 
   <script src="learning-games.js?v=2"></script>
-  <script src="admin.js?v=1.6.1"></script>
+  <script src="admin.js?v=1.6.2"></script>
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(() => {});

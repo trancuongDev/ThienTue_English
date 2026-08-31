@@ -332,6 +332,26 @@ function fmtDate(d) {
 }
 function fmtTime(ts) { return new Date(ts).toLocaleString('vi-VN'); }
 
+function _normClassName(name) {
+  return String(name || '')
+    .replace(/[\u00a0\u2000-\u200b\ufeff]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .normalize('NFC')
+    .toLowerCase();
+}
+function _parseClassList(raw) {
+  return String(raw || '')
+    .split(',')
+    .map(c => c.replace(/[\u00a0\u2000-\u200b\ufeff]/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+function _classListsOverlap(listA, listB) {
+  const setB = new Set((listB || []).map(_normClassName).filter(Boolean));
+  if (!setB.size) return false;
+  return (listA || []).some(c => setB.has(_normClassName(c)));
+}
+
 // ---- Ghi log biến động tài khoản vào bảng alerts ----
 async function logAccountActivity(action, student) {
   // action: 'Tạo tài khoản' | 'Xóa tài khoản' | 'Sửa tài khoản'
@@ -530,7 +550,7 @@ async function getClassesForUser() {
   if (!_teacherClass) return all; // Admin thấy hết
   const gvClasses = _teacherClass.split(',').map(c => c.trim()).filter(Boolean);
   // Lấy lớp từ DB khớp với lớp phân công
-  const fromDB = all.filter(c => gvClasses.includes(c));
+  const fromDB = all.filter(c => _classListsOverlap([c], gvClasses));
   // Luôn merge với lớp phân công trực tiếp (phòng trường hợp chưa có dữ liệu trong DB)
   return [...new Set([...fromDB, ...gvClasses])];
 }
@@ -603,8 +623,8 @@ async function renderGroups() {
   const list = _gvClasses
     ? (listRaw||[]).filter(g => {
         if (!g.class_name) return false;
-        const gc = g.class_name.split(',').map(c => c.trim()).filter(Boolean);
-        return gc.some(c => _gvClasses.includes(c));
+        const gc = _parseClassList(g.class_name);
+        return _classListsOverlap(gc, _gvClasses);
       })
     : (listRaw||[]);
   const container = document.getElementById('groupList');
@@ -2484,13 +2504,14 @@ async function _doRenderLessons() {
     ? _teacherClass.split(',').map(c => c.trim()).filter(Boolean)
     : null;
 
-  let query = db.from('lessons').select('*').order('group_name',{ascending:true}).order('sort_order',{ascending:true}).order('created_at',{ascending:true});
+  let query = db.from('lessons').select('*').order('group_name',{ascending:true}).order('sort_order',{ascending:true}).order('created_at',{ascending:true}).limit(5000);
+  const { data: listRaw } = await query;
+  let list = listRaw || [];
   if (fc) {
-    query = query.eq('class_name', fc);
+    list = list.filter(l => _classListsOverlap(_parseClassList(l.class_name), [fc]));
   } else if (_gvClasses && _gvClasses.length) {
-    query = query.in('class_name', _gvClasses);
+    list = list.filter(l => _classListsOverlap(_parseClassList(l.class_name), _gvClasses));
   }
-  const { data: list } = await query;
   const el = document.getElementById('lessonList');
   el.innerHTML = '';
   document.getElementById('emptyLessons').style.display = (list||[]).length ? 'none' : 'block';
@@ -5081,14 +5102,13 @@ async function renderSchedule() {
   let query = db.from('schedule_slots').select('*')
     .gte('week_start', ws).lte('week_start', ws)
     .order('day_of_week').order('start_time');
+  const { data: slotsRaw } = await query;
+  let list = slotsRaw || [];
   if (cls) {
-    query = query.eq('class_name', cls);
+    list = list.filter(s => _classListsOverlap(_parseClassList(s.class_name), [cls]));
   } else if (_gvClasses && _gvClasses.length) {
-    // GV chỉ thấy lịch lớp mình
-    query = query.in('class_name', _gvClasses);
+    list = list.filter(s => !s.class_name || _classListsOverlap(_parseClassList(s.class_name), _gvClasses));
   }
-  const { data: slots } = await query;
-  const list = slots || [];
 
   const container = document.getElementById('schedWeekTable');
   const emptyEl   = document.getElementById('emptySchedule');
