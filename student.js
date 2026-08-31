@@ -125,6 +125,7 @@ async function loadMe() {
   myClasses = [...new Set(myClasses)];
   myClass = myClasses[0] || ''; // giữ tương thích chỗ cũ dùng myClass
   sessionStorage.setItem('dh_code', data?.student_code || '');
+  sessionStorage.setItem('dh_class', myClasses.join(', '));
 
   const today = new Date(); today.setHours(0,0,0,0);
   const WARN_DAYS = 7;
@@ -728,6 +729,18 @@ function getDownloadUrl(url) {
   return null;
 }
 
+// Che thanh công cụ Google Drive (nút Tải xuống / Mở cửa sổ mới) trên TL & BVT
+function _blockDriveDocToolbar(iframeWrap, url) {
+  if (!url || !String(url).includes('drive.google.com')) return;
+  const bar = document.createElement('div');
+  bar.style.cssText = 'position:absolute;top:0;left:0;right:0;height:58px;z-index:6;background:transparent';
+  bar.title = 'Tài liệu chỉ xem trực tuyến, không được tải xuống';
+  iframeWrap.appendChild(bar);
+  const corner = document.createElement('div');
+  corner.style.cssText = 'position:absolute;top:0;right:0;width:240px;height:72px;z-index:7;background:transparent';
+  iframeWrap.appendChild(corner);
+}
+
 // ---- Chi tiết bài học ----
 // ---- Ghi log truy cap ----
 function logAccess(lessonId, lessonName, contentId, contentTitle, contentType) {
@@ -868,7 +881,14 @@ const _NO_OVERLAY_GROUPS = ['Đợt 4', 'dot 4', 'Dot 4'];
 
 // ── Cập nhật trạng thái online khi chuyển tab ──
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') {
+  const hidden = document.visibilityState === 'hidden';
+  document.querySelectorAll('#viewerBody iframe, #viewerBody video').forEach(el => {
+    el.style.visibility = hidden ? 'hidden' : '';
+  });
+  if (hidden && _activeVideoEl) {
+    try { _activeVideoEl.pause(); } catch (e) {}
+  }
+  if (hidden) {
     db.from('students').update({ is_online: false, last_seen: new Date().toISOString() }).eq('username', currentUser);
   } else {
     db.from('students').update({ is_online: true, last_seen: new Date().toISOString() }).eq('username', currentUser);
@@ -1033,14 +1053,19 @@ function openViewer(title, url, fileName, fileType) {
       setTimeout(() => { iframe.src = url; }, 0);
     }
   } else if (isDocLink || isHandwrittenLink) {
-    const dlUrl = getDownloadUrl(url);
-    if (dlUrl) { dl.style.display=''; dl.href=dlUrl; dl.removeAttribute('download'); dl.target='_blank'; }
+    // TL / BVT: chỉ xem trực tuyến, không cho tải về
+    dl.style.display = 'none';
+    dl.removeAttribute('href');
     const embed = getEmbedUrl(url);
+    const iframeWrap = document.createElement('div');
+    iframeWrap.style.cssText = 'position:relative;flex:1;min-height:0;overflow:hidden;border-radius:8px';
     const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'flex:1;width:100%;height:100%;border:none;border-radius:8px';
+    iframe.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;border:none';
     iframe.allowFullscreen = true;
     iframe.onload = hideLoading;
-    wrap.appendChild(iframe);
+    iframeWrap.appendChild(iframe);
+    _blockDriveDocToolbar(iframeWrap, url);
+    wrap.appendChild(iframeWrap);
     setTimeout(() => { iframe.src = embed || url; }, 0);
   } else if (isVideo) {
     const video = document.createElement('video');
@@ -1061,32 +1086,28 @@ function openViewer(title, url, fileName, fileType) {
       window.addEventListener('resize', onOrient);
     }
   } else if (fileType==='application/pdf') {
-    dl.style.display = '';
-    dl.href = url;
-    if (fileName) dl.download = fileName; else dl.removeAttribute('download');
-    dl.target = '_blank';
+    dl.style.display = 'none';
+    dl.removeAttribute('href');
     const iframe = document.createElement('iframe');
     iframe.className = 'viewer-iframe';
     iframe.onload = hideLoading;
     wrap.appendChild(iframe);
-    setTimeout(() => { iframe.src = url; }, 0);
+    const pdfSrc = url + (url.includes('#') ? '&' : '#') + 'toolbar=0&navpanes=0';
+    setTimeout(() => { iframe.src = pdfSrc; }, 0);
   } else if ((fileType||'').startsWith('image/')) {
-    dl.style.display = '';
-    dl.href = url;
-    if (fileName) dl.download = fileName; else dl.removeAttribute('download');
-    dl.target = '_blank';
+    dl.style.display = 'none';
+    dl.removeAttribute('href');
     const img = document.createElement('img');
     img.className = 'viewer-img';
     img.alt = title;
+    img.draggable = false;
     img.onload = hideLoading;
     wrap.appendChild(img);
     setTimeout(() => { img.src = url; }, 0);
   } else {
-    dl.style.display = '';
-    dl.href = url;
-    if (fileName) dl.download = fileName; else dl.removeAttribute('download');
-    dl.target = '_blank';
-    body.innerHTML = '<p class="muted-center">⚠️ Không xem trực tiếp được. Vui lòng tải xuống.</p>';
+    dl.style.display = 'none';
+    dl.removeAttribute('href');
+    body.innerHTML = '<p class="muted-center">⚠️ Không xem trực tiếp được định dạng này. Liên hệ giáo viên.</p>';
   }
   document.getElementById('viewerModal').classList.add('open');
   // Tạm tắt DevTools detection khi modal mở

@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Học Sinh — Thiên Tuệ English</title>
   <meta http-equiv="X-Frame-Options" content="DENY"/>
+  <meta http-equiv="Permissions-Policy" content="display-capture=(), camera=(), microphone=()"/>
   <link rel="icon" type="image/png" href="icons/icon-192.png"/>
   <link rel="apple-touch-icon" href="icons/icon-192.png"/>
   <link rel="stylesheet" href="style.css"/>
@@ -437,7 +438,7 @@
         <!-- Tài liệu -->
         <div style="background:#fef3c7;border-radius:12px;padding:1rem 1.25rem">
           <div style="font-weight:800;font-size:.95rem;color:#92400e;margin-bottom:.5rem">📄 Tài liệu học tập</div>
-          <p style="font-size:.88rem;line-height:1.7;color:var(--text)">Nhấn vào tài liệu để xem trực tiếp trên trình duyệt. Một số tài liệu hỗ trợ tải xuống. Tài liệu chỉ dành cho học viên đã đăng ký và <b>không được phép chia sẻ</b> ra ngoài.</p>
+          <p style="font-size:.88rem;line-height:1.7;color:var(--text)">Nhấn vào tài liệu hoặc bản viết tay để xem trực tiếp trên trình duyệt. Tài liệu và bản viết tay <b>không hỗ trợ tải xuống</b>. Chỉ dành cho học viên đã đăng ký và <b>không được phép chia sẻ</b> ra ngoài.</p>
         </div>
 
         <!-- Bảo mật -->
@@ -746,7 +747,7 @@
   </div>
 
   <script src="learning-games.js?v=2"></script>
-  <script src="student.js?v=1.4.5"></script>
+  <script src="student.js?v=1.4.11"></script>
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(() => {});
@@ -763,6 +764,41 @@
     const overlay = document.getElementById('securityOverlay');
     let lastLogTime = 0;
 
+    // ── Lớp chống chụp/quay: che đen tức thì (PrintScreen, chuyển tab, rời app) ──
+    const _antiShotMask = document.createElement('div');
+    _antiShotMask.id = '_antiShotMask';
+    _antiShotMask.setAttribute('aria-hidden', 'true');
+    _antiShotMask.style.cssText = 'display:none;position:fixed;inset:0;background:#000;z-index:2147483645;pointer-events:none';
+    document.body.appendChild(_antiShotMask);
+    let _antiShotStickyUntil = 0;
+    function _showAntiShot(stickyMs) {
+      _antiShotMask.style.display = 'block';
+      document.documentElement.style.background = '#000';
+      if (stickyMs) _antiShotStickyUntil = Date.now() + stickyMs;
+    }
+    function _hideAntiShot() {
+      if (Date.now() < _antiShotStickyUntil) return;
+      if (document.hidden) return;
+      if (overlay.classList.contains('active')) return;
+      _antiShotMask.style.display = 'none';
+      document.documentElement.style.background = '';
+    }
+    function _coverForCapture() {
+      _showAntiShot(1800);
+      document.body.style.filter = 'brightness(0)';
+      document.querySelectorAll('#viewerBody iframe, #viewerBody video, #viewerBody img').forEach(el => {
+        el.style.visibility = 'hidden';
+      });
+    }
+    function _uncoverAfterCapture() {
+      _antiShotStickyUntil = 0;
+      document.querySelectorAll('#viewerBody iframe, #viewerBody video, #viewerBody img').forEach(el => {
+        el.style.visibility = '';
+      });
+      if (!overlay.classList.contains('active') && !_dtOpen) document.body.style.filter = '';
+      _hideAntiShot();
+    }
+
     // logAlert và showOverlay được định nghĩa bên dưới
 
     // showOverlay được định nghĩa bên dưới sau khi có đủ context
@@ -770,6 +806,7 @@
     document.getElementById('secDismiss').addEventListener('click', () => {
       overlay.classList.remove('active');
       document.body.style.filter = '';
+      _hideAntiShot();
     });
 
     // ── Chặn chuột phải ──
@@ -791,6 +828,15 @@
       const ctrl = e.ctrlKey || e.metaKey;
       const alt = e.altKey;
       const inInput = ['INPUT','TEXTAREA'].includes(e.target.tagName);
+
+      // PrintScreen: che đen NGAY (đua với OS trước khi chụp xong)
+      if (k === 'PrintScreen' || e.code === 'PrintScreen') {
+        _coverForCapture();
+        e.preventDefault(); e.stopImmediatePropagation();
+        showOverlay('Phím bị chặn: PrintScreen');
+        setTimeout(_uncoverAfterCapture, 1800);
+        return;
+      }
 
       // Cho phép Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+X trong input/textarea
       if (ctrl && inInput && ['a','A','c','C','v','V','x','X'].includes(k)) return;
@@ -817,45 +863,55 @@
       if ((k === 'f' || k === 'F') && document.getElementById('viewerModal')?.classList.contains('open')) {
         return; // không chặn — student.js sẽ bắt và fullscreen iframe
       }
-      // Chặn PrintScreen, Insert, Delete đặc biệt
-      if (['PrintScreen','F13','ScrollLock','Pause'].includes(k)) {
-        e.preventDefault(); e.stopImmediatePropagation();
-        showOverlay('Phím bị chặn: ' + k);
-        return;
-      }
     }, true);
 
     document.addEventListener('keyup', e => {
-      if (e.key === 'PrintScreen') {
+      if (e.key === 'PrintScreen' || e.code === 'PrintScreen') {
         navigator.clipboard?.writeText('').catch(()=>{});
+        _coverForCapture();
         showOverlay('PrintScreen — ảnh chụp đã bị xóa');
+        setTimeout(_uncoverAfterCapture, 1800);
       }
     }, true);
 
-    // ── Ẩn nội dung khi chuyển tab / minimize ──
+    // ── Ẩn nội dung khi chuyển tab / minimize / rời app (kể cả lúc đang xem TL/BVT) ──
     document.addEventListener('visibilitychange', () => {
-      if (_dtPaused) return; // đang xem video/tài liệu — bỏ qua (student.js xử lý riêng)
       if (document.hidden) {
+        _showAntiShot();
         document.body.style.filter = 'brightness(0)';
       } else {
-        document.body.style.filter = '';
+        if (!overlay.classList.contains('active') && !_dtOpen) {
+          document.body.style.filter = '';
+        }
+        _hideAntiShot();
       }
     });
 
-    // ── Ẩn khi mất focus (Alt+Tab desktop) — chỉ desktop ──
+    // ── Ẩn khi mất focus (Alt+Tab desktop) — không áp khi đang click iframe viewer ──
     if (!/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
       window.addEventListener('blur', () => {
+        if (document.getElementById('viewerModal')?.classList.contains('open')) return;
         if (_dtPaused) return;
+        _showAntiShot();
         document.body.style.filter = 'brightness(0)';
       });
       window.addEventListener('focus', () => {
-        document.body.style.filter = '';
+        if (document.hidden) return;
+        if (!overlay.classList.contains('active') && !_dtOpen) {
+          document.body.style.filter = '';
+        }
+        _hideAntiShot();
       });
     }
 
+    // Giữ màn hình đen nếu tab vẫn ẩn (một số máy không bắn visibilitychange)
+    setInterval(() => {
+      if (document.hidden) _showAntiShot();
+    }, 500);
+
     // ── Phát hiện DevTools — window size detection ──
     let _dtOpen = false;
-    let _dtPaused = false; // tạm tắt khi modal đang mở
+    let _dtPaused = false; // tạm tắt DevTools size-check khi modal đang mở (không tắt che màn hình)
 
     function _onDevToolsOpen() {
       if (_dtOpen || _dtPaused) return;
@@ -1025,11 +1081,24 @@
       showOverlay('Phát hiện Picture-in-Picture');
     }, true);
 
-    // ── Chặn tất cả link download ──
+    // ── Nhiều màn hình: ghi log (không khóa tài khoản) ──
+    if (window.screen && screen.isExtended) {
+      logAlert('Phát hiện nhiều màn hình');
+    }
+    if (window.screen && typeof screen.addEventListener === 'function') {
+      try {
+        screen.addEventListener('change', () => {
+          if (screen.isExtended) logAlert('Phát hiện nhiều màn hình');
+        });
+      } catch (e) {}
+    }
+
+    // ── Chặn tất cả link download (kể cả nút Tải TL/BVT trên viewer) ──
     document.addEventListener('click', e => {
-      const a = e.target.closest('a[download]');
-      if (a && !a.classList.contains('dl-btn') && !a.id?.includes('Download')) {
+      const a = e.target.closest('a[download], #viewerDownload');
+      if (a) {
         e.preventDefault();
+        e.stopPropagation();
       }
     }, true);
 
@@ -1142,11 +1211,14 @@
     // ══════════════════════════════════════════════════
     // WATERMARK BẢO MẬT CẤP CAO NHẤT
     // ══════════════════════════════════════════════════
-    const wmText = sessionStorage.getItem('dh_user') || '';
+    function _wmLabel() {
+      return sessionStorage.getItem('dh_user') || '';
+    }
     let _wmEl = null;
     let _wmDestroyed = false;
     let _wmTamperCount = 0;
     let _wmLastAlert = 0;
+    let _wmTick = 0;
 
     // ID ngẫu nhiên mỗi lần load — khó tìm qua console
     const _WM_ID = '_wm_' + Math.random().toString(36).slice(2, 10);
@@ -1179,16 +1251,20 @@
       ctx.clearRect(0, 0, _wmEl.width, _wmEl.height);
       ctx.save();
       ctx.translate(_wmEl.width / 2, _wmEl.height / 2);
-      ctx.rotate(-25 * Math.PI / 180);
-      ctx.font = 'bold 15px Arial';
-      ctx.fillStyle = 'rgba(0,0,0,0.10)';
+      ctx.rotate(-22 * Math.PI / 180);
+      ctx.font = 'bold 14px Arial';
+      ctx.fillStyle = 'rgba(0,0,0,0.07)';
       ctx.textAlign = 'center';
-      const gapX = 220, gapY = 70;
-      const cols = Math.ceil(_wmEl.width  * 1.5 / gapX) + 2;
-      const rows = Math.ceil(_wmEl.height * 1.5 / gapY) + 2;
+      const label = _wmLabel();
+      _wmTick++;
+      const ox = (_wmTick * 11) % 36;
+      const oy = (_wmTick * 7) % 28;
+      const gapX = 280, gapY = 64;
+      const cols = Math.ceil(_wmEl.width  * 1.6 / gapX) + 2;
+      const rows = Math.ceil(_wmEl.height * 1.6 / gapY) + 2;
       for (let r = -rows; r <= rows; r++)
         for (let c = -cols; c <= cols; c++)
-          ctx.fillText(wmText, c * gapX, r * gapY);
+          ctx.fillText(label, c * gapX + ox, r * gapY + oy);
       ctx.restore();
     }
 
@@ -1224,6 +1300,7 @@
 
     _mountWatermark();
     window.addEventListener('resize', drawWatermark);
+    setInterval(() => { if (!_wmDestroyed) drawWatermark(); }, 12000);
 
     // LỚP 1: setInterval 2000ms — kiểm tra tồn tại + style
     setInterval(() => {
@@ -1292,6 +1369,7 @@
       .iframe-protect { position:absolute; inset:0; z-index:5; pointer-events:none; }
       /* Tab warning overlay */
       #_tabWarnOverlay { z-index:2147483646 !important; }
+      #_antiShotMask { display:none; position:fixed; inset:0; background:#000; z-index:2147483645 !important; pointer-events:none; }
     `;
     document.head.appendChild(secStyle);
   </script>
