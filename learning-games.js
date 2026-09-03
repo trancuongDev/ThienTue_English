@@ -34,6 +34,8 @@ window.LearningGames = (function () {
 
   // ── Vocab state ──
   let _fcIdx = 0;
+  let _fcKnown = new Set();   // ids của từ đã đánh dấu "Biết rồi"
+  let _fcDoneThisRound = 0;  // đếm đã duyệt bao nhiêu từ trong vòng hiện tại
   let _fiWords = [], _fiIdx = 0, _fiScore = 0;
   let _matchSelected = { type: null, id: null };
   let _matchPairs = [];
@@ -64,6 +66,57 @@ window.LearningGames = (function () {
     return text.length > max ? text.slice(0, max - 1) + '…' : text;
   }
 
+  // ── Database helpers cho vocab_progress ──
+  function _fcDb() {
+    if (typeof db === 'undefined') return null;
+    return db;
+  }
+
+  // Lấy student_id từ sessionStorage (student.js set sẵn)
+  function _getStudentDbId() {
+    return sessionStorage.getItem('st_student_db_id') || null;
+  }
+
+  // Load progress từ DB
+  async function loadVocabProgress(setId, studentDbIdOverride) {
+    const database = _fcDb();
+    const studentDbId = studentDbIdOverride || _getStudentDbId();
+    if (!database || !studentDbId) return null;
+    try {
+      const { data } = await database
+        .from('vocab_progress')
+        .select('known_word_ids, unknown_word_ids, last_card_index')
+        .eq('student_id', Number(studentDbId))
+        .eq('vocab_set_id', setId)
+        .single();
+      return data || null;
+    } catch(e) { return null; }
+  }
+
+  // Lưu progress vào DB (upsert)
+  async function saveVocabProgress(setId, knownIds, unknownIds, cardIdx, studentDbIdOverride) {
+    const database = _fcDb();
+    const studentDbId = studentDbIdOverride || ctx._studentDbId || _getStudentDbId();
+    if (!database || !studentDbId) return;
+    const allKnown = knownIds.length === vocabWords().filter(w => !unknownIds.includes(String(w.id))).length;
+    await database.from('vocab_progress').upsert({
+      student_id: Number(studentDbId),  // convert string → number (bigint)
+      vocab_set_id: setId,
+      known_word_ids: knownIds,
+      unknown_word_ids: unknownIds,
+      last_card_index: cardIdx,
+      completed_at: allKnown ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'student_id,vocab_set_id' }).throwOnError();
+  }
+
+  // ── Nhảy đến thẻ số N ──
+  function fcGoTo(n) {
+    _fcIdx = Math.max(0, Math.min(n, vocabWords().length - 1));
+    _fcDoneThisRound = Math.min(_fcIdx, _fcDoneThisRound);
+    renderFcCard();
+  }
+
   // ══════════════════════════════════════════════════════════════════
   // VOCAB GAMES
   // ══════════════════════════════════════════════════════════════════
@@ -74,18 +127,147 @@ window.LearningGames = (function () {
     ctx._area = area;
     const words = vocabWords();
     if (!words.length) { area.innerHTML = '<p style="color:var(--muted);padding:2rem;text-align:center">Bộ từ này chưa có từ nào.</p>'; return; }
-    _fcIdx = 0;
-    const btnStyle = 'background:none;border:1.5px solid var(--border);border-radius:8px;padding:.4rem .9rem;cursor:pointer;font-size:.85rem;color:var(--text)';
-    const renderCard = () => {
-      const w = words[_fcIdx];
-      const atStart = _fcIdx === 0;
-      const atEnd = _fcIdx === words.length - 1;
+    _fcDoneThisRound = 0;
+    // Chỉ reset về 0 nếu chưa có restored index (tránh ghi đè restoreFcState)
+    if (typeof ctx._fcRestoredIdx !== 'number') {
+      _fcIdx = 0;
+    }
+    renderFcCard();
+  }
+
+  // ── Lấy từ tiếp theo trong vòng hiện tại ──
+  // mode: 'next' = đi tới, 'prev' = lùi lại
+  function fcMove(mode) {
+    const words = vocabWords();
+    if (!words.length) return;
+    if (mode === 'prev') {
+      if (_fcIdx > 0) _fcIdx--;
+    } else {
+      _fcIdx++;
+      _fcDoneThisRound = Math.min(_fcIdx, _fcDoneThisRound);
+    }
+    renderFcCard();
+  }
+
+  // ── Xử lý nút "Biết rồi" / "Chưa biết" ──
+  function fcMark(known) {
+    const words = vocabWords();
+    const w = words[_fcIdx];
+    if (!w) return;
+    if (known) {
+      _fcKnown.add(w.id);
+    } else {
+      _fcKnown.delete(w.id);
+    }
+    // Lưu DB (bất đồng bộ, không chờ)
+    _saveProgressDebounced();
+    // Tự động chuyển sang từ tiếp theo sau 400ms
+    setTimeout(() => fcMove('next'), 400);
+  }
+
+  // ── Debounce save để tránh spam DB ──
+  let _saveProgressTimer = null;
+  function _saveProgressDebounced() {
+    clearTimeout(_saveProgressTimer);
+    _saveProgressTimer = setTimeout(async () => {
+      const setId = typeof _stCurrentVocabSetId !== 'undefined' ? _stCurrentVocabSetId : null;
+      if (!setId) return;
+      const knownArr = Array.from(_fcKnown);
+      const unknownArr = words ? words.filter(w => !_fcKnown.has(w.id)).map(w => String(w.id)) : [];
+      await saveVocabProgress(setId, knownArr, unknownArr, _fcIdx);
+    }, 800);
+  }
+
+  function renderFcCard() {
+    const area = areaEl();
+    if (!area) return;
+    const words = vocabWords();
+    if (!words.length) return;
+
+    const remaining = words.length - _fcIdx - 1;
+    const unknownCount = words.filter(w => !_fcKnown.has(w.id)).length;
+    const knownCount = words.filter(w => _fcKnown.has(w.id)).length;
+    const allDone = _fcIdx >= words.length;
+
+    if (allDone) {
+      // ── Màn hình hoàn thành vòng học ──
+      const pct = Math.round(knownCount / words.length * 100);
       area.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:center;margin-bottom:1rem;gap:.5rem">
-        <button type="button" id="lgFcPrevBtn" ${atStart ? 'disabled' : ''} style="${btnStyle}${atStart ? ';opacity:.4;cursor:not-allowed' : ''}">◀ Trước</button>
-        <span style="font-size:.85rem;color:var(--muted);font-weight:600">${_fcIdx + 1} / ${words.length}</span>
-        <button type="button" id="lgFcNextBtn" ${atEnd ? 'disabled' : ''} style="${btnStyle}${atEnd ? ';opacity:.4;cursor:not-allowed' : ''}">Sau ▶</button>
+        <div style="text-align:center;padding:2rem;background:var(--card);border-radius:16px;border:1.5px solid var(--border)">
+          <div style="font-size:3rem;margin-bottom:.75rem">${knownCount === words.length ? '🏆' : knownCount >= words.length * 0.6 ? '🎉' : '📚'}</div>
+          <div style="font-size:1.3rem;font-weight:900;color:var(--text);margin-bottom:.5rem">
+            Hoàn thành vòng học!
+          </div>
+          <div style="font-size:1rem;font-weight:700;color:var(--primary);margin-bottom:.35rem">
+            ✅ Đã thuộc: ${knownCount} / ${words.length}
+          </div>
+          ${unknownCount > 0 ? `
+          <div style="font-size:.9rem;color:#f59e0b;margin-bottom:1rem">
+            ⚠️ Còn ${unknownCount} từ chưa thuộc — cần ôn lại
+          </div>` : `
+          <div style="font-size:.9rem;color:#10b981;margin-bottom:1rem">
+            🎉 Tuyệt vời! Bạn thuộc hết tất cả từ!
+          </div>`}
+          <div style="width:100%;height:10px;background:#e5e7eb;border-radius:999px;overflow:hidden;margin-bottom:.85rem">
+            <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#4338ca,#6366f1);border-radius:999px;transition:width .5s"></div>
+          </div>
+          <div style="display:flex;gap:.65rem;justify-content:center;flex-wrap:wrap">
+            ${unknownCount > 0 ? `
+            <button onclick="LearningGames.vocab.startNewRound()"
+              style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;border-radius:12px;padding:.65rem 1.5rem;font-size:.9rem;font-weight:700;cursor:pointer">
+              🔄 Ôn lại từ chưa thuộc (${unknownCount})
+            </button>` : ''}
+            <button onclick="LearningGames.vocab.startNewRound()"
+              style="background:linear-gradient(135deg,#059669,#10b981);color:#fff;border:none;border-radius:12px;padding:.65rem 1.5rem;font-size:.9rem;font-weight:700;cursor:pointer">
+              🔄 Học lại từ đầu
+            </button>
+            <button onclick="LearningGames.vocab.flashcard(areaEl())"
+              style="background:linear-gradient(135deg,#4338ca,#6366f1);color:#fff;border:none;border-radius:12px;padding:.65rem 1.5rem;font-size:.9rem;font-weight:700;cursor:pointer">
+              🃏 Mở lại Flashcard
+            </button>
+          </div>
+        </div>`;
+      return;
+    }
+
+    const w = words[_fcIdx];
+    const isKnown = _fcKnown.has(w.id);
+    const pct = Math.round((_fcIdx / words.length) * 100);
+
+    const btnStyle = 'background:none;border:1.5px solid var(--border);border-radius:8px;padding:.4rem .9rem;cursor:pointer;font-size:.85rem;color:var(--text)';
+    const atStart = _fcIdx === 0;
+    const atEnd = _fcIdx === words.length - 1;
+
+    area.innerHTML = `
+      <!-- Progress bar + counters -->
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.85rem;flex-wrap:wrap">
+        <span style="font-size:.78rem;color:var(--muted);font-weight:700;white-space:nowrap">
+          ${_fcIdx + 1} / ${words.length}
+        </span>
+        <div style="flex:1;min-width:80px;height:8px;background:#e5e7eb;border-radius:999px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#4338ca,#6366f1);border-radius:999px;transition:width .4s"></div>
+        </div>
+        <span style="font-size:.72rem;background:#d1fae5;color:#065f46;padding:.2rem .6rem;border-radius:999px;font-weight:700;white-space:nowrap">
+          ✅ ${knownCount} thuộc
+        </span>
+        ${unknownCount > 0 ? `<span style="font-size:.72rem;background:#fee2e2;color:#991b1b;padding:.2rem .6rem;border-radius:999px;font-weight:700;white-space:nowrap">
+          ⚠️ ${unknownCount} chưa
+        </span>` : ''}
       </div>
+
+      <!-- Nhảy đến thẻ số X -->
+      <div style="display:flex;align-items:center;justify-content:center;gap:.4rem;margin-bottom:.75rem">
+        <span style="font-size:.78rem;color:var(--muted)">Nhảy đến thẻ:</span>
+        <input type="number" id="lgFcGoInput" min="1" max="${words.length}" placeholder="1 – ${words.length}"
+          style="width:68px;padding:.3rem .5rem;border:1.5px solid var(--border);border-radius:8px;font-size:.82rem;text-align:center;outline:none"
+          onkeydown="if(event.key==='Enter'){LearningGames.vocab.fcGoTo(parseInt(this.value)-1);this.value='';}">
+        <button type="button" onclick="LearningGames.vocab.fcGoTo(parseInt(document.getElementById('lgFcGoInput').value)-1);document.getElementById('lgFcGoInput').value='';"
+          style="padding:.3rem .7rem;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:.78rem;font-weight:700;cursor:pointer">
+          → Đi
+        </button>
+      </div>
+
+      <!-- Flashcard -->
       <div class="st-flashcard" id="lgFlashcard" onclick="this.classList.toggle('flipped')">
         <div class="st-flashcard-inner">
           <div class="st-flashcard-front">
@@ -101,15 +283,35 @@ window.LearningGames = (function () {
           </div>
         </div>
       </div>
-      <div style="text-align:center;margin-top:1rem;font-size:.82rem;color:var(--muted)">Nhấp vào thẻ để lật qua lại</div>`;
-      document.getElementById('lgFcPrevBtn').onclick = () => {
-        if (_fcIdx > 0) { _fcIdx--; renderCard(); }
-      };
-      document.getElementById('lgFcNextBtn').onclick = () => {
-        if (_fcIdx < words.length - 1) { _fcIdx++; renderCard(); }
-      };
-    };
-    renderCard();
+
+      <!-- Nút điều hướng -->
+      <div style="display:flex;align-items:center;justify-content:center;margin-top:1rem;gap:.5rem">
+        <button type="button" onclick="LearningGames.vocab.flashcard(areaEl())"
+          style="${btnStyle};font-size:.78rem" title=" Quay về từ đầu">⏮ Từ đầu</button>
+        <button type="button" id="lgFcPrevBtn" ${atStart ? 'disabled' : ''}
+          style="${btnStyle}${atStart ? ';opacity:.4;cursor:not-allowed' : ''}">◀ Trước</button>
+        <button type="button" id="lgFcNextBtn"
+          style="${btnStyle}">Sau ▶</button>
+      </div>
+
+      <!-- Nút Biết / Chưa biết -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-top:.85rem;max-width:480px;margin-left:auto;margin-right:auto">
+        <button type="button" onclick="LearningGames.vocab.fcMark(false)"
+          style="padding:.7rem;border:2px solid #ef4444;border-radius:12px;background:#fee2e2;color:#dc2626;font-size:.95rem;font-weight:800;cursor:pointer;transition:all .15s;box-shadow:0 4px 12px rgba(239,68,68,.2)">
+          ❌ Chưa biết
+        </button>
+        <button type="button" onclick="LearningGames.vocab.fcMark(true)"
+          style="padding:.7rem;border:2px solid #10b981;border-radius:12px;background:#d1fae5;color:#065f46;font-size:.95rem;font-weight:800;cursor:pointer;transition:all .15s;box-shadow:0 4px 12px rgba(16,185,129,.2)">
+          ✅ Biết rồi
+        </button>
+      </div>
+
+      <div style="text-align:center;margin-top:.85rem;font-size:.82rem;color:var(--muted)">
+        Nhấp vào thẻ để lật · Dùng <b>❌ Chưa biết</b> / <b>✅ Biết rồi</b> để ghi nhớ tiến độ
+      </div>`;
+
+    document.getElementById('lgFcPrevBtn').onclick = () => fcMove('prev');
+    document.getElementById('lgFcNextBtn').onclick = () => fcMove('next');
   }
 
   function fillInCard(area) {
@@ -462,6 +664,138 @@ window.LearningGames = (function () {
     vocabQuizCard();
   }
 
+  // ── Vocab preview — xem tất cả từ trước khi học (dạng danh sách) ──
+  let _vpFilter = '';
+
+  // ── Reset progress flashcard khi chuyển bộ từ mới ──
+  function _resetFcState() {
+    _fcIdx = 0;
+    _fcKnown.clear();
+    _fcDoneThisRound = 0;
+    ctx._fcUnknownOnly = false;
+  }
+
+  // ── Lấy danh sách từ đã thuộc (để student.js lưu session) ──
+  function _getFcKnown() { return _fcKnown; }
+
+  // ── Khôi phục trạng thái flashcard từ DB hoặc sessionStorage ──
+  function restoreFcState(knownIds, unknownIds, lastCardIdx) {
+    _fcKnown.clear();
+    (knownIds || []).forEach(id => _fcKnown.add(id));
+    _fcIdx = (typeof lastCardIdx === 'number' && lastCardIdx >= 0) ? lastCardIdx : 0;
+    _fcDoneThisRound = 0;
+    ctx._fcRestoredIdx = _fcIdx; // đánh dấu đã restore để flashcard() không reset
+  }
+
+  // ── Bắt đầu vòng mới: lọc từ chưa thuộc hoặc chơi lại từ đầu ──
+  function startNewRound() {
+    ctx._fcRestoredIdx = undefined; // clear restore flag khi bắt đầu vòng mới
+    const words = vocabWords();
+    const unknown = words.filter(w => !_fcKnown.has(w.id));
+    if (unknown.length > 0) {
+      // Chỉ học từ chưa thuộc
+      ctx._fcUnknownOnly = true;
+      _fcIdx = 0;
+      _fcDoneThisRound = 0;
+    } else {
+      // Học lại tất cả, reset progress + DB
+      ctx._fcUnknownOnly = false;
+      _fcKnown.clear();
+      _fcIdx = 0;
+      _fcDoneThisRound = 0;
+      // Xóa progress DB khi reset toàn bộ
+      const setId = typeof _stCurrentVocabSetId !== 'undefined' ? _stCurrentVocabSetId : null;
+      if (setId) saveVocabProgress(setId, [], [], 0);
+    }
+    renderFcCard();
+  }
+
+  function vocabPreview(area) {
+    area = areaEl(area);
+    if (!area) return;
+    ctx._area = area;
+    const words = vocabWords();
+    if (!words.length) {
+      area.innerHTML = '<p style="color:var(--muted);padding:2rem;text-align:center">Bộ từ này chưa có từ nào.</p>';
+      return;
+    }
+
+    const esc = (s) => (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const filter = _vpFilter.trim().toLowerCase();
+    const list = !filter ? words : words.filter(w =>
+      (w.word || '').toLowerCase().includes(filter) ||
+      (w.meaning || '').toLowerCase().includes(filter) ||
+      (w.example || '').toLowerCase().includes(filter)
+    );
+
+    area.innerHTML = `
+      <div class="st-vocab-preview-toolbar">
+        <div class="st-vocab-preview-search">
+          <span class="st-vocab-preview-search-icon">🔍</span>
+          <input type="text" id="vpSearch" placeholder="Tìm từ, nghĩa, ví dụ..." value="${esc(_vpFilter)}"/>
+        </div>
+        <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
+          <span style="font-size:.78rem;color:var(--muted);font-weight:600;background:var(--primary-light);color:var(--primary);padding:.3rem .75rem;border-radius:999px">
+            📖 ${list.length}/${words.length} từ
+          </span>
+          <button type="button" id="vpStartBtn" data-game="flashcard"
+            style="padding:.55rem 1.15rem;border:none;border-radius:10px;background:linear-gradient(135deg,#4338ca,#6366f1);color:#fff;font-size:.85rem;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(99,102,241,.3)">
+            ▶ Bắt đầu học Flashcard
+          </button>
+        </div>
+      </div>
+
+      <div style="background:linear-gradient(135deg,#eef2ff,#e0e7ff);border:1.5px solid #c7d2fe;border-radius:12px;padding:.85rem 1.1rem;margin-bottom:1rem;display:flex;align-items:flex-start;gap:.65rem;font-size:.84rem;color:#3730a3;line-height:1.6">
+        <span style="font-size:1.2rem;flex-shrink:0">💡</span>
+        <span><b>Đọc qua toàn bộ danh sách từ bên dưới</b> trước, ghi nhớ nghĩa và cách dùng. Sau khi nắm rồi, nhấn <b>“Bắt đầu học Flashcard”</b> hoặc chọn trò chơi khác (Điền từ · Nối từ · Trắc nghiệm) ở thanh phía trên để luyện tập.</span>
+      </div>
+
+      <div id="vpList" class="st-vocab-preview-list">
+        ${list.map((w, i) => `
+          <div class="st-vocab-word-card">
+            <div class="st-vocab-word-idx">${i + 1}</div>
+            ${w.image_url
+              ? `<img class="st-vocab-word-img" src="${esc(w.image_url)}" alt="${esc(w.word)}" onerror="this.style.display='none'"/>`
+              : ''}
+            <div class="st-vocab-word-body">
+              <div class="st-vocab-word-en">
+                <span>${esc(w.word)}</span>
+                ${w.phonetic ? `<span class="st-vocab-word-phonetic">${esc(w.phonetic)}</span>` : ''}
+                ${w.word_type ? `<span style="font-size:.7rem;font-weight:700;color:#6b7280;background:#f3f4f6;padding:.15rem .55rem;border-radius:6px;text-transform:uppercase">${esc(w.word_type)}</span>` : ''}
+              </div>
+              <div class="st-vocab-word-meaning">${esc(w.meaning)}</div>
+              ${w.example ? `<div class="st-vocab-word-example">"${esc(w.example)}"</div>` : ''}
+            </div>
+          </div>`).join('')}
+      </div>
+    `;
+
+    // Search filter
+    const searchEl = document.getElementById('vpSearch');
+    if (searchEl) {
+      searchEl.addEventListener('input', (e) => {
+        _vpFilter = e.target.value || '';
+        vocabPreview(area);
+        // Giữ focus + vị trí con trỏ
+        const re = document.getElementById('vpSearch');
+        if (re) {
+          re.focus();
+          const v = re.value;
+          re.setSelectionRange(v.length, v.length);
+        }
+      });
+    }
+
+    // Start button → chuyển sang flashcard
+    const startBtn = document.getElementById('vpStartBtn');
+    if (startBtn) {
+      startBtn.addEventListener('click', () => {
+        const tabBtn = document.querySelector('.st-game-tab[data-game="flashcard"]');
+        if (tabBtn) tabBtn.click();
+      });
+    }
+  }
+
   // ══════════════════════════════════════════════════════════════════
   // GRAMMAR GAMES
   // ══════════════════════════════════════════════════════════════════
@@ -685,7 +1019,16 @@ window.LearningGames = (function () {
   }
 
   const vocab = {
+    vocabPreview,
     flashcard,
+    fcMark,
+    fcGoTo,
+    startNewRound,
+    _resetFcState,
+    _getFcKnown,
+    restoreFcState,
+    loadVocabProgress,
+    saveVocabProgress,
     fillIn,
     fillInCard,
     checkFillIn,

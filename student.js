@@ -164,6 +164,7 @@ function debounce(fn, ms) {
 
 async function loadMe() {
   const { data } = await db.from('students').select('id, class_name, student_code, expiry_date, created_at, username, active').eq('username', currentUser).single();
+  sessionStorage.setItem('st_student_db_id', data?.id || '');
   myClass = data?.class_name || '';
   // Gộp lớp chính (students.class_name) VÀ lớp phụ (student_classes)
   // Trước đây nếu đã có student_classes thì bỏ lớp chính → một số lớp không thấy bài
@@ -1224,6 +1225,22 @@ loadMe().then(async () => {
     if (el) el.classList.add('active');
     document.querySelectorAll('[data-page="lessons"]').forEach(l => l.classList.add('active'));
     openLessonDetail(parseInt(savedLesson));
+  } else if (savedPage === 'vocab') {
+    // Khôi phục trạng thái từ vựng nếu đang học dở
+    currentSection = 'vocab';
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.slink').forEach(l => l.classList.remove('active'));
+    const el = document.getElementById('pageVocab');
+    if (el) el.classList.add('active');
+    document.querySelectorAll('[data-page="vocab"]').forEach(l => l.classList.add('active'));
+    renderStVocabSets().then(() => {
+      const savedSetId = sessionStorage.getItem('st_vocab_set_id');
+      const savedTitle = sessionStorage.getItem('st_vocab_title');
+      if (savedSetId && savedTitle) {
+        // Gọi lại stOpenVocabGame — nó sẽ tự nhận ra đúng bộ từ và khôi phục
+        stOpenVocabGame(parseInt(savedSetId), savedTitle);
+      }
+    });
   } else {
     showPage(savedPage);
   }
@@ -2071,17 +2088,72 @@ async function renderStVocabSets() {
 
 async function stOpenVocabGame(setId, title) {
   _stCurrentVocabSetId = setId;
-  _stCurrentGame = 'flashcard';
   document.getElementById('stVocabGameTitle').textContent = title;
   document.getElementById('stVocabSetList').style.display = 'none';
   document.getElementById('stVocabGamePanel').style.display = 'block';
   const { data, error } = await db.from('vocab_words').select('*').eq('set_id', setId).order('sort_order').order('created_at');
   if (error) { showToast('Lỗi: ' + error.message, false); return; }
   _stCurrentVocabWords = data || [];
-  stSwitchVocabGame('flashcard', document.querySelector('.st-game-tab[data-game="flashcard"]'));
+
+  // Lấy student_id từ DB (dùng được trên mọi thiết bị)
+  let studentDbId = null;
+  if (currentUser) {
+    const { data: stuData } = await db.from('students').select('id').eq('username', currentUser).single();
+    studentDbId = stuData?.id ?? null;
+    // Lưu vào sessionStorage để dùng trên mọi thiết bị
+    if (studentDbId) sessionStorage.setItem('st_student_db_id', studentDbId);
+  }
+
+  // Load progress từ DB trước (ưu tiên), fallback sessionStorage, cuối cùng mới reset
+  let knownIds = [];
+  let hasDbProgress = false;
+  let dbProgress = null;
+
+  if (typeof LearningGames !== 'undefined' && LearningGames.vocab) {
+    dbProgress = await LearningGames.vocab.loadVocabProgress(setId, studentDbId);
+    if (dbProgress && (dbProgress.known_word_ids?.length || dbProgress.unknown_word_ids?.length)) {
+      knownIds = dbProgress.known_word_ids || [];
+      hasDbProgress = true;
+      // Đồng bộ sessionStorage để logout/relogin vẫn dùng được
+      sessionStorage.setItem('st_vocab_set_id', String(setId));
+      sessionStorage.setItem('st_vocab_game', 'flashcard');
+      sessionStorage.setItem('st_vocab_fc_known', JSON.stringify(knownIds));
+      sessionStorage.setItem('st_vocab_title', title);
+    }
+  }
+
+  if (!hasDbProgress) {
+    // Fallback sessionStorage (cho trường hợp chưa loadMe xong hoặc DB lỗi)
+    const savedSetId = sessionStorage.getItem('st_vocab_set_id');
+    const isSameSet = savedSetId && String(savedSetId) === String(setId);
+    if (isSameSet) {
+      try { knownIds = JSON.parse(sessionStorage.getItem('st_vocab_fc_known') || '[]'); } catch(e) {}
+    }
+  }
+
+  if (knownIds.length > 0 && typeof LearningGames !== 'undefined' && LearningGames.vocab) {
+    LearningGames.vocab.restoreFcState(knownIds, null, dbProgress?.last_card_index);
+  } else if (typeof LearningGames !== 'undefined' && LearningGames.vocab && LearningGames.vocab._resetFcState) {
+    LearningGames.vocab._resetFcState();
+  }
+
+  // Mặc định mở tab flashcard nếu có tiến độ, ngược lại mở preview
+  const savedGame = hasDbProgress ? 'flashcard' : (sessionStorage.getItem('st_vocab_game') || 'preview');
+  _stCurrentGame = savedGame;
+  const tabBtn = document.querySelector(`.st-game-tab[data-game="${savedGame}"]`);
+  stSwitchVocabGame(savedGame, tabBtn);
 }
 
 function stCloseVocabGame() {
+  // Lưu trạng thái hiện tại vào sessionStorage để khôi phục khi quay lại
+  const fcKnown = typeof LearningGames !== 'undefined' && LearningGames.vocab && LearningGames.vocab._getFcKnown
+    ? Array.from(LearningGames.vocab._getFcKnown())
+    : [];
+  sessionStorage.setItem('st_vocab_set_id', _stCurrentVocabSetId || '');
+  sessionStorage.setItem('st_vocab_game', _stCurrentGame || 'preview');
+  sessionStorage.setItem('st_vocab_fc_known', JSON.stringify(fcKnown));
+  sessionStorage.setItem('st_vocab_title', document.getElementById('stVocabGameTitle')?.textContent || '');
+
   _stCurrentVocabSetId = null;
   _stCurrentVocabWords = [];
   document.getElementById('stVocabGamePanel').style.display = 'none';
@@ -2090,23 +2162,26 @@ function stCloseVocabGame() {
 
 function stSwitchVocabGame(game, btn) {
   _stCurrentGame = game;
+  sessionStorage.setItem('st_vocab_game', game);
   document.querySelectorAll('.st-game-tab').forEach(t => t.classList.remove('active'));
   if (btn) btn.classList.add('active');
   const area = document.getElementById('stVocabGameArea');
   if (!area) return;
-  if (game === 'flashcard') stRenderFlashcard(area);
+  if (game === 'preview')   stRenderVocabPreview(area);
+  else if (game === 'flashcard') stRenderFlashcard(area);
   else if (game === 'fillin') stRenderFillIn(area);
   else if (game === 'match')  stRenderMatch(area);
   else if (game === 'quiz')   stRenderVocabQuiz(area);
 }
 
 // ── Trò chơi (shared learning-games.js) ─────────────────────────────
-function _lgSetVocabCtx(area) {
+function _lgSetVocabCtx(area, studentDbId) {
   LearningGames.setCtx({
     getVocabWords: () => _stCurrentVocabWords,
     areaId: area?.id || 'stVocabGameArea',
     accent: 'primary',
-    _area: area || null
+    _area: area || null,
+    _studentDbId: studentDbId || null
   });
 }
 function _lgSetGrammarCtx(area) {
@@ -2118,6 +2193,7 @@ function _lgSetGrammarCtx(area) {
   });
 }
 function stRenderFlashcard(area) { _lgSetVocabCtx(area); LearningGames.vocab.flashcard(area); }
+function stRenderVocabPreview(area) { _lgSetVocabCtx(area); LearningGames.vocab.vocabPreview(area); }
 function stRenderFillIn(area) { _lgSetVocabCtx(area); LearningGames.vocab.fillIn(area); }
 function stRenderFillInCard(area) { _lgSetVocabCtx(area); LearningGames.vocab.fillInCard(area); }
 function stCheckFillIn() { LearningGames.vocab.checkFillIn(); }

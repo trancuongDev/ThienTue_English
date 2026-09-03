@@ -168,6 +168,25 @@ create table if not exists quiz_questions (
   created_at timestamptz default now()
 );
 
+-- 13. Vocab flashcard progress (lưu từ đã thuộc theo từng bộ từ)
+create table if not exists vocab_progress (
+  id uuid primary key default gen_random_uuid(),
+  student_id bigint references students(id) on delete cascade not null,
+  vocab_set_id text not null,  -- text để tương thích, ko cần FK
+  known_word_ids text[] default array[]::text[],  -- mảng id từ đã đánh dấu "Biết rồi"
+  unknown_word_ids text[] default array[]::text[], -- mảng id từ đã đánh dấu "Chưa biết"
+  last_card_index integer default 0,              -- thẻ cuối cùng đang học
+  completed_at timestamptz,
+  updated_at timestamptz default now(),
+  unique(student_id, vocab_set_id)
+);
+
+-- RLS policies cho vocab_progress (tạm disable — check student trong code JS)
+alter table vocab_progress enable row level security;
+
+-- Cho phép anon key đọc/ghi (student_id check trong JS code)
+create policy "allow_all_progress" on vocab_progress for all using (true) with check (true);
+
 -- ============================================================
 -- Row Level Security (RLS) — cho phép anon key đọc/ghi
 -- (Dùng cho prototype, production nên dùng Auth policies)
