@@ -16,6 +16,25 @@
   <meta http-equiv="X-Frame-Options" content="DENY"/>
   <meta http-equiv="X-Content-Type-Options" content="nosniff"/>
   <link rel="icon" type="image/png" href="icons/icon-192.png"/>
+  <script>
+    // Chặn chuột phải
+    document.addEventListener('contextmenu', function(e) { e.preventDefault(); return false; });
+    // Chặn F12, Ctrl+U, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'F12') { e.preventDefault(); return false; }
+      if (e.ctrlKey && e.key === 'u') { e.preventDefault(); return false; }
+      if (e.ctrlKey && e.shiftKey && ['i','I','j','J','c','C'].includes(e.key)) { e.preventDefault(); return false; }
+    });
+    // Phát hiện DevTools mở
+    (function() {
+      var threshold = 160;
+      setInterval(function() {
+        if (window.outerWidth - window.innerWidth > threshold || window.outerHeight - window.innerHeight > threshold) {
+          document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-size:24px;font-family:sans-serif;color:#e74c3c;">⚠️ Không được phép mở công cụ kiểm tra!</div>';
+        }
+      }, 1000);
+    })();
+  </script>
   <link rel="manifest" href="manifest.json"/>
   <meta name="theme-color" content="#c0392b"/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet"/>
@@ -230,8 +249,8 @@ if(/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent))
 
 const { createClient } = supabase;
 const db = createClient(
-  'https://nzoequnbxtqaukyvsvmt.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56b2VxdW5ieHRxYXVreXZzdm10Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3NDY2MDUsImV4cCI6MjEwMTMyMjYwNX0.PFnnvkZ10EtKEH5xXA5VtgnazSYhoyBp9MpBlJCtF7g'
+  'https://yxsphkaremsnvwhwcowf.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl4c3Boa2FyZW1zbnZ3aHdjb3dmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyNjg0MjgsImV4cCI6MjEwNjg0NDQyOH0.nASXfVCy2BWNurrDf534ouH84TUQSMeHC0j1svMeuxY'
 );
 
 if('serviceWorker' in navigator){

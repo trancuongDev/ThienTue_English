@@ -1,8 +1,8 @@
 // supabase.js - Thiên Tuệ English Center
 // Kết nối Supabase và các hàm CRUD
 
-const SUPABASE_URL  = 'https://uhnwlccpzierninyhsvr.supabase.co';
-const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVobndsY2Nwemllcm5pbnloc3ZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU2ODU0MTQsImV4cCI6MjEwMTI2MTQxNH0.ChVrXsJkp5wbRPlo9A5caD30yK7u5MWnGNQwNWkJmbw';
+const SUPABASE_URL  = 'https://yxsphkaremsnvwhwcowf.supabase.co';
+const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl4c3Boa2FyZW1zbnZ3aHdjb3dmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyNjg0MjgsImV4cCI6MjEwNjg0NDQyOH0.nASXfVCy2BWNurrDf534ouH84TUQSMeHC0j1svMeuxY';
 
 // ── Supabase REST helper ─────────────────────────────────────────────────────
 const sb = {

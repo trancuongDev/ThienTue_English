@@ -1,7 +1,7 @@
 ﻿//// Khởi tạo Supabase client (CDN đã load sẵn qua script tag)
 const db = supabase.createClient(
-  'https://nzoequnbxtqaukyvsvmt.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56b2VxdW5ieHRxYXVreXZzdm10Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3NDY2MDUsImV4cCI6MjEwMTMyMjYwNX0.PFnnvkZ10EtKEH5xXA5VtgnazSYhoyBp9MpBlJCtF7g'
+  'https://yxsphkaremsnvwhwcowf.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl4c3Boa2FyZW1zbnZ3aHdjb3dmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyNjg0MjgsImV4cCI6MjEwNjg0NDQyOH0.nASXfVCy2BWNurrDf534ouH84TUQSMeHC0j1svMeuxY'
 );
 
 // ── Toast thông báo ──────────────────────────────────────────────
@@ -1613,7 +1613,7 @@ document.getElementById('naCopyBtn')?.addEventListener('click', () => {
     if (c >= '0' && c <= '9') return `số ${c}`;
     return c;
   }).join(' - ');
-  const text  = `Họ tên: ${name}\nMã HV: ${code}\nGmail: ${user}\nMật khẩu: ${pw}\n📖 Đọc: ${spelled}\nLớp: ${cls}\nNgày khai giảng: ${start}\nNgày kết thúc: ${end}\nSĐT: ${phone}\n\n👉 Bạn sao chép mật khẩu trên rồi dán vào chỗ mật khẩu trong web nha.\n🌐 Link học: https://trancuongdev.github.io/ThienTue-English/\nNếu gặp vấn đề kỹ thuật hay gì cứ liên hệ mình nha.`;
+  const text  = `Họ tên: ${name}\nMã HV: ${code}\nGmail: ${user}\nMật khẩu: ${pw}\n📖 Đọc: ${spelled}\nLớp: ${cls}\nNgày khai giảng: ${start}\nNgày kết thúc: ${end}\nSĐT: ${phone}\n\n👉 Bạn sao chép mật khẩu trên rồi dán vào chỗ mật khẩu trong web nha.\n🌐 Link học: http://thientueenglish.trancuong08.io.vn/\nNếu gặp vấn đề kỹ thuật hay gì cứ liên hệ mình nha.`;
   navigator.clipboard?.writeText(text).then(() => {
     const btn = document.getElementById('naCopyBtn');
     btn.textContent = '✅ Đã sao chép!';

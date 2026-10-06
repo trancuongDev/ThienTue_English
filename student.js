@@ -1,7 +1,7 @@
 ﻿// Khởi tạo Supabase client
 const db = supabase.createClient(
-  'https://nzoequnbxtqaukyvsvmt.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56b2VxdW5ieHRxYXVreXZzdm10Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3NDY2MDUsImV4cCI6MjEwMTMyMjYwNX0.PFnnvkZ10EtKEH5xXA5VtgnazSYhoyBp9MpBlJCtF7g'
+  'https://yxsphkaremsnvwhwcowf.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl4c3Boa2FyZW1zbnZ3aHdjb3dmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyNjg0MjgsImV4cCI6MjEwNjg0NDQyOH0.nASXfVCy2BWNurrDf534ouH84TUQSMeHC0j1svMeuxY'
 );
 
 // ---- Giải mã link AES-GCM ----
@@ -1110,6 +1110,11 @@ function openViewer(title, url, fileName, fileType) {
     iframe.allowFullscreen = true;
     iframe.onload = hideLoading;
     iframeWrap.appendChild(iframe);
+    // Overlay chặn chuột phải trên iframe tài liệu
+    const rcOverlay = document.createElement('div');
+    rcOverlay.style.cssText = 'position:absolute;inset:0;z-index:10;';
+    rcOverlay.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); return false; });
+    iframeWrap.appendChild(rcOverlay);
     _blockDriveDocToolbar(iframeWrap, url);
     wrap.appendChild(iframeWrap);
     setTimeout(() => { iframe.src = embed || url; }, 0);
@@ -1134,10 +1139,19 @@ function openViewer(title, url, fileName, fileType) {
   } else if (fileType==='application/pdf') {
     dl.style.display = 'none';
     dl.removeAttribute('href');
+    const pdfWrap = document.createElement('div');
+    pdfWrap.style.cssText = 'position:relative;flex:1;min-height:0;overflow:hidden;border-radius:8px';
     const iframe = document.createElement('iframe');
     iframe.className = 'viewer-iframe';
+    iframe.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;border:none';
     iframe.onload = hideLoading;
-    wrap.appendChild(iframe);
+    // Overlay chặn chuột phải trên PDF
+    const pdfOverlay = document.createElement('div');
+    pdfOverlay.style.cssText = 'position:absolute;inset:0;z-index:10;';
+    pdfOverlay.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); return false; });
+    pdfWrap.appendChild(iframe);
+    pdfWrap.appendChild(pdfOverlay);
+    wrap.appendChild(pdfWrap);
     const pdfSrc = url + (url.includes('#') ? '&' : '#') + 'toolbar=0&navpanes=0';
     setTimeout(() => { iframe.src = pdfSrc; }, 0);
   } else if ((fileType||'').startsWith('image/')) {

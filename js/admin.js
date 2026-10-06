@@ -728,7 +728,7 @@ function copyFullAccountInfo() {
   const name  = modal._name || '';
   const user  = modal._username || document.getElementById('acUsername').textContent;
   const pwd   = modal._password || document.getElementById('acPassword').textContent;
-  const text  = `🎓 Thông tin tài khoản Thiên Tuệ English\n👤 Họ tên: ${name}\n📧 Tên đăng nhập: ${user}\n🔑 Mật khẩu: ${pwd}\n\n🌐 Đăng nhập tại: ${location.origin}/index.html`;
+  const text  = `🎓 Thông tin tài khoản Thiên Tuệ English\n👤 Họ tên: ${name}\n📧 Tên đăng nhập: ${user}\n🔑 Mật khẩu: ${pwd}\n\n🌐 Đăng nhập tại: http://thientueenglish.trancuong08.io.vn/`;
   navigator.clipboard.writeText(text).then(() => showToast('Đã sao chép thông tin tài khoản!', 'success'));
 }
 function shareAccountInfo() {
@@ -736,7 +736,7 @@ function shareAccountInfo() {
   const name  = modal._name || '';
   const user  = modal._username || document.getElementById('acUsername').textContent;
   const pwd   = modal._password || document.getElementById('acPassword').textContent;
-  const text  = `🎓 Thông tin tài khoản Thiên Tuệ English\n👤 Họ tên: ${name}\n📧 Tên đăng nhập: ${user}\n🔑 Mật khẩu: ${pwd}\n\n🌐 Đăng nhập tại: ${location.origin}/index.html`;
+  const text  = `🎓 Thông tin tài khoản Thiên Tuệ English\n👤 Họ tên: ${name}\n📧 Tên đăng nhập: ${user}\n🔑 Mật khẩu: ${pwd}\n\n🌐 Đăng nhập tại: http://thientueenglish.trancuong08.io.vn/`;
   if (navigator.share) {
     navigator.share({ title: 'Tài khoản Thiên Tuệ English', text }).catch(() => {});
   } else {

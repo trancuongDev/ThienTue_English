@@ -6,6 +6,25 @@
   <title>Bài Tập — Thiên Tuệ English</title>
   <meta http-equiv="X-Frame-Options" content="DENY"/>
   <link rel="icon" type="image/png" href="icons/icon-192.png"/>
+  <script>
+    // Chặn chuột phải
+    document.addEventListener('contextmenu', function(e) { e.preventDefault(); return false; });
+    // Chặn F12, Ctrl+U, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'F12') { e.preventDefault(); return false; }
+      if (e.ctrlKey && e.key === 'u') { e.preventDefault(); return false; }
+      if (e.ctrlKey && e.shiftKey && ['i','I','j','J','c','C'].includes(e.key)) { e.preventDefault(); return false; }
+    });
+    // Phát hiện DevTools mở
+    (function() {
+      var threshold = 160;
+      setInterval(function() {
+        if (window.outerWidth - window.innerWidth > threshold || window.outerHeight - window.innerHeight > threshold) {
+          document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-size:24px;font-family:sans-serif;color:#e74c3c;">⚠️ Không được phép mở công cụ kiểm tra!</div>';
+        }
+      }, 1000);
+    })();
+  </script>
   <link rel="stylesheet" href="style.css"/>
   <!-- Supabase -->
   <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -1038,8 +1057,8 @@ document.addEventListener('DOMContentLoaded', () => {
 // ═══════════════════════════════════════════
 // CONFIG & STATE
 // ═══════════════════════════════════════════
-const SUPA_URL = 'https://nzoequnbxtqaukyvsvmt.supabase.co';
-const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56b2VxdW5ieHRxYXVreXZzdm10Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3NDY2MDUsImV4cCI6MjEwMTMyMjYwNX0.PFnnvkZ10EtKEH5xXA5VtgnazSYhoyBp9MpBlJCtF7g';
+const SUPA_URL = 'https://yxsphkaremsnvwhwcowf.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl4c3Boa2FyZW1zbnZ3aHdjb3dmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyNjg0MjgsImV4cCI6MjEwNjg0NDQyOH0.nASXfVCy2BWNurrDf534ouH84TUQSMeHC0j1svMeuxY';
 const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
 
 // ── Kiểm tra bảo trì ──────────────────────────────────────
@@ -8354,9 +8373,9 @@ window.addEventListener('pagehide', function(e) {
   // Dùng sendBeacon để mark submitted ngay cả khi tab đóng
   if (doHWId && currentUser?.username) {
     try {
-      const url = `https://nzoequnbxtqaukyvsvmt.supabase.co/rest/v1/exam_progress?homework_id=eq.${doHWId}&username=eq.${encodeURIComponent(currentUser.username)}`;
+      const url = `https://yxsphkaremsnvwhwcowf.supabase.co/rest/v1/exam_progress?homework_id=eq.${doHWId}&username=eq.${encodeURIComponent(currentUser.username)}`;
       const body = JSON.stringify({ status: 'submitted', updated_at: new Date().toISOString() });
-      navigator.sendBeacon && navigator.sendBeacon(url + '&apikey=' + 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56b2VxdW5ieHRxYXVreXZzdm10Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3NDY2MDUsImV4cCI6MjEwMTMyMjYwNX0.PFnnvkZ10EtKEH5xXA5VtgnazSYhoyBp9MpBlJCtF7g',
+      navigator.sendBeacon && navigator.sendBeacon(url + '&apikey=' + 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl4c3Boa2FyZW1zbnZ3aHdjb3dmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyNjg0MjgsImV4cCI6MjEwNjg0NDQyOH0.nASXfVCy2BWNurrDf534ouH84TUQSMeHC0j1svMeuxY',
         new Blob([body], { type: 'application/json' }));
     } catch(e) {}
   }
